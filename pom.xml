@@ -24,6 +24,8 @@
     <modules>
         <module>template-service</module>
         <module>ingestion-service</module>
+        <module>pipeline-service</module>
+        <module>batch-service</module>
     </modules>
 
     <dependencyManagement>

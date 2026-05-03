@@ -45,29 +45,27 @@ public class IngestionTemplateService {
     @Transactional(readOnly = true)
     public IngestionTemplate getEntity(Long id) {
         return ingestionTemplateRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Template não encontrado com id " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("error.template.not.found", id));
     }
 
     private void validateCreateRequest(CreateIngestionTemplateRequest request) {
         if (ingestionTemplateRepository.existsByName(request.getName().trim())) {
-            throw new BadRequestException("Já existe um template com o nome '" + request.getName() + "'");
+            throw new BadRequestException("error.template.name.duplicate", request.getName());
         }
 
         if (request.getFields() == null || request.getFields().isEmpty()) {
-            throw new BadRequestException("O template deve ter pelo menos um field");
+            throw new BadRequestException("error.template.no.fields");
         }
 
         for (CreateIngestionTemplateRequest.FieldRequest field : request.getFields()) {
             if (!StringUtils.hasText(field.getFieldName())) {
-                throw new BadRequestException("Todos os fields devem ter fieldName");
+                throw new BadRequestException("error.template.field.name.empty");
             }
 
             if (request.getFileType().name().equals("CSV")
                     && Boolean.FALSE.equals(request.getHasHeader())
                     && field.getPositionIndex() == null) {
-                throw new BadRequestException(
-                        "Em templates CSV sem header, todos os fields devem ter positionIndex"
-                );
+                throw new BadRequestException("error.template.csv.position.index");
             }
         }
     }

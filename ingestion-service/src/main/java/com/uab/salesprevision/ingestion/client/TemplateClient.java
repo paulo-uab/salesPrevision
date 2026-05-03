@@ -27,7 +27,7 @@ public class TemplateClient {
                     .retrieve()
                     .body(TemplateDto.class);
         } catch (HttpClientErrorException.NotFound ex) {
-            throw new ResourceNotFoundException("Template não encontrado com id " + templateId);
+            throw new ResourceNotFoundException("error.template.not.found", templateId);
         }
     }
 }

@@ -1,0 +1,63 @@
+package com.uab.salesprevision.batch.scheduler;
+
+import com.uab.salesprevision.batch.entity.BatchScheduleConfig;
+import com.uab.salesprevision.batch.repository.BatchScheduleConfigRepository;
+import com.uab.salesprevision.batch.service.BatchScheduleService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.CronExpression;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class BatchScheduler {
+
+    private final BatchScheduleConfigRepository scheduleConfigRepository;
+    private final BatchScheduleService batchScheduleService;
+
+    @Value("${scheduling.enabled:true}")
+    private boolean schedulingEnabled;
+
+    private final Map<Long, LocalDateTime> lastRunTimes = new ConcurrentHashMap<>();
+
+    @Scheduled(fixedDelay = 60_000)
+    public void checkSchedules() {
+        if (!schedulingEnabled) return;
+
+        List<BatchScheduleConfig> active = scheduleConfigRepository.findByActiveTrue();
+        LocalDateTime now = LocalDateTime.now();
+
+        for (BatchScheduleConfig config : active) {
+            try {
+                if (isDue(config, now)) {
+                    log.info("Disparando batch para schedule {} ({})", config.getId(), config.getCronExpression());
+                    lastRunTimes.put(config.getId(), now);
+                    batchScheduleService.runJob(config);
+                }
+            } catch (Exception e) {
+                log.error("Erro ao processar schedule {}: {}", config.getId(), e.getMessage());
+            }
+        }
+    }
+
+    private boolean isDue(BatchScheduleConfig config, LocalDateTime now) {
+        try {
+            CronExpression cron = CronExpression.parse(config.getCronExpression());
+            LocalDateTime lastRun = lastRunTimes.getOrDefault(config.getId(),
+                    now.minusMinutes(2));
+            LocalDateTime nextAfterLastRun = cron.next(lastRun);
+            return nextAfterLastRun != null && !nextAfterLastRun.isAfter(now);
+        } catch (Exception e) {
+            log.warn("Expressão cron inválida para schedule {}: {}", config.getId(), config.getCronExpression());
+            return false;
+        }
+    }
+}

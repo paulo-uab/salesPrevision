@@ -70,7 +70,7 @@ public class IngestionService {
                                                 boolean autoProcess) {
 
         if (file == null || file.isEmpty()) {
-            throw new BadRequestException("É necessário enviar um ficheiro");
+            throw new BadRequestException("error.ingestion.file.required");
         }
 
         TemplateDto template = templateClient.getTemplate(templateId);
@@ -84,14 +84,14 @@ public class IngestionService {
         if (template.getFileType() != FileType.UNKNOWN
                 && detectedFileType != FileType.UNKNOWN
                 && template.getFileType() != detectedFileType) {
-            throw new BadRequestException("O ficheiro enviado não corresponde ao tipo configurado no template");
+            throw new BadRequestException("error.ingestion.file.type.mismatch");
         }
 
         byte[] bytes;
         try {
             bytes = file.getBytes();
         } catch (IOException e) {
-            throw new BadRequestException("Não foi possível ler o ficheiro enviado");
+            throw new BadRequestException("error.ingestion.file.read");
         }
 
         String storedFileName = UUID.randomUUID() + "_" + sanitizeFileName(originalFileName);
@@ -102,11 +102,12 @@ public class IngestionService {
             Files.createDirectories(templateDir);
             Files.write(targetPath, bytes);
         } catch (IOException e) {
-            throw new BadRequestException("Não foi possível guardar o ficheiro: " + e.getMessage());
+            throw new BadRequestException("error.ingestion.file.save", e.getMessage());
         }
 
         IngestionJob job = IngestionJob.builder()
                 .templateId(templateId)
+                .templateName(template.getName())
                 .status(IngestionStatus.RECEIVED)
                 .originalFileName(originalFileName)
                 .storedFileName(storedFileName)
@@ -131,13 +132,14 @@ public class IngestionService {
     public IngestionJobResponse processJob(Long jobId) {
         IngestionJob job = getJobEntity(jobId);
 
-        FileType fileType = job.getTemplate().getFileType();
+        TemplateDto template = templateClient.getTemplate(job.getTemplateId());
+        FileType fileType = template.getFileType();
         if (fileType == null || fileType == FileType.UNKNOWN) {
             fileType = detectFileType(job.getOriginalFileName());
         }
 
         IngestionProcessor processor = ingestionProcessorFactory.getProcessor(fileType);
-        processor.process(job);
+        processor.process(job, template);
 
         return ingestionEntitiesMapper.ingestionJobToIngestionJobResponse(getJobEntity(jobId));
     }
@@ -186,7 +188,7 @@ public class IngestionService {
 
     private IngestionJob getJobEntity(Long jobId) {
         return ingestionJobRepository.findById(jobId)
-                .orElseThrow(() -> new ResourceNotFoundException("Ingestion job não encontrado com id " + jobId));
+                .orElseThrow(() -> new ResourceNotFoundException("error.ingestion.job.not.found", jobId));
     }
 
     private void ensureJobExists(Long jobId) {

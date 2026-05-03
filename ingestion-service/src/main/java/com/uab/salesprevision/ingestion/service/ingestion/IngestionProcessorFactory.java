@@ -20,7 +20,7 @@ public class IngestionProcessorFactory {
                 .filter(processor -> processor.supports() == fileType)
                 .findFirst()
                 .orElseThrow(() -> new BadRequestException(
-                        "Não existe processador configurado para o tipo de ficheiro " + fileType
+                        "error.ingestion.processor.not.found", fileType
                 ));
     }
 }

@@ -1,5 +1,9 @@
 package com.uab.core.exception;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.MessageSource;
+import org.springframework.context.NoSuchMessageException;
+import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -7,21 +11,25 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @Autowired(required = false)
+    private MessageSource messageSource;
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {
-        return build(HttpStatus.NOT_FOUND, ex.getMessage(), null);
+        return build(HttpStatus.NOT_FOUND, resolve(ex.getMessage(), ex.getArgs()), null);
     }
 
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<Map<String, Object>> handleBadRequest(BadRequestException ex) {
-        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+        return build(HttpStatus.BAD_REQUEST, resolve(ex.getMessage(), ex.getArgs()), null);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -31,7 +39,7 @@ public class GlobalExceptionHandler {
                 .stream()
                 .map(this::formatFieldError)
                 .toList();
-        return build(HttpStatus.BAD_REQUEST, "Validation failed", details);
+        return build(HttpStatus.BAD_REQUEST, resolve("error.validation.failed", null), details);
     }
 
     @ExceptionHandler(Exception.class)
@@ -39,12 +47,22 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), null);
     }
 
+    private String resolve(String key, Object[] args) {
+        if (messageSource == null || key == null) return key;
+        Locale locale = LocaleContextHolder.getLocale();
+        try {
+            return messageSource.getMessage(key, args, locale);
+        } catch (NoSuchMessageException e) {
+            return key;
+        }
+    }
+
     private String formatFieldError(FieldError error) {
         return error.getField() + ": " + error.getDefaultMessage();
     }
 
     private ResponseEntity<Map<String, Object>> build(HttpStatus status, String message, List<String> details) {
-        Map<String, Object> body = new HashMap<>();
+        Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", status.value());
         body.put("error", status.getReasonPhrase());
         body.put("message", message);
