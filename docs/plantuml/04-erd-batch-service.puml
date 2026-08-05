@@ -1,0 +1,30 @@
+@startuml batch-erd
+entity "BatchScheduleConfig" as SC {
+  * id : Long <<PK>>
+  --
+  pipelineId : Long <<FK ext>>
+  pipelineName : String(150)
+  cronExpression : String(150)
+  lookbackDays : Integer
+  predictionApiUrl : String(500)
+  active : Boolean
+  createdBy : String(100)
+  createdAt : LocalDateTime
+  updatedAt : LocalDateTime
+}
+
+entity "BatchExecution" as BE {
+  * id : Long <<PK>>
+  --
+  springBatchJobExecutionId : Long
+  status : BatchExecutionStatus
+  startedAt : LocalDateTime
+  finishedAt : LocalDateTime
+  recordsSent : Long
+  recordsFailed : Long
+  errorMessage : String(4000)
+  createdAt : LocalDateTime
+}
+
+SC ||--o{ BE : "executions"
+@enduml

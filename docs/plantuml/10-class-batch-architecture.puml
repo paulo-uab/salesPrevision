@@ -1,0 +1,48 @@
+@startuml batch-architecture
+package "batch-service" {
+  class ForecastJobConfig {
+    +forecastJob(JobRepository, Step) : Job
+    +forecastStep(JobRepository, TransactionManager,\n  ForecastItemReader, ForecastItemProcessor,\n  ForecastItemWriter) : Step
+    -- chunkSize: 100 --
+  }
+
+  class ForecastItemReader {
+    -jobParameters : JobParameters
+    -scheduleConfigRepository
+    -ingestionClient : IngestionClient
+    -recordQueue : Queue<Map>
+    +read() : Map<String,Object>
+    -loadRecords() : void
+  }
+
+  class ForecastItemProcessor {
+    -pipelineClient : PipelineClient
+    -pipelineDto : PipelineDto
+    -filterEngine : FilterEngine
+    -transformationEngine : TransformationEngine
+    +beforeStep(StepExecution) : void
+    +process(Map) : Map<String,Object>
+  }
+
+  class ForecastItemWriter {
+    -jobParameters : JobParameters
+    -batchExecutionRepository
+    -restClient : RestClient
+    +write(Chunk<Map>) : void
+  }
+
+  class FilterEngine {
+    +apply(List<PipelineFilterDto>, Map) : boolean
+  }
+
+  class TransformationEngine {
+    +apply(List<PipelineFieldDto>, Map) : Map<String,Object>
+  }
+
+  ForecastJobConfig --> ForecastItemReader
+  ForecastJobConfig --> ForecastItemProcessor
+  ForecastJobConfig --> ForecastItemWriter
+  ForecastItemProcessor --> FilterEngine
+  ForecastItemProcessor --> TransformationEngine
+}
+@enduml

@@ -1,10 +1,10 @@
 package com.uab.salesprevision.batch.batch;
 
-import com.uab.core.dto.pipeline.PipelineDto;
+import com.uab.salesprevision.batch.client.dto.PipelineClientDto;
 import com.uab.salesprevision.batch.client.PipelineClient;
 import com.uab.salesprevision.batch.engine.FilterEngine;
 import com.uab.salesprevision.batch.engine.TransformationEngine;
-import com.uab.salesprevision.batch.entity.BatchScheduleConfig;
+import com.uab.salesprevision.batch.model.BatchScheduleConfig;
 import com.uab.salesprevision.batch.repository.BatchScheduleConfigRepository;
 import com.uab.core.exception.ResourceNotFoundException;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +26,7 @@ public class ForecastItemProcessor implements ItemProcessor<Map<String, Object>,
     private final FilterEngine filterEngine;
     private final TransformationEngine transformationEngine;
 
-    private PipelineDto pipeline;
+    private PipelineClientDto pipeline;
 
     public ForecastItemProcessor(PipelineClient pipelineClient,
                                  BatchScheduleConfigRepository scheduleConfigRepository,
@@ -42,13 +42,18 @@ public class ForecastItemProcessor implements ItemProcessor<Map<String, Object>,
     public void beforeStep(StepExecution stepExecution) {
         Long scheduleConfigId = stepExecution.getJobParameters().getLong("scheduleConfigId");
         BatchScheduleConfig config = scheduleConfigRepository.findById(scheduleConfigId)
-                .orElseThrow(() -> new ResourceNotFoundException("Schedule config não encontrado: " + scheduleConfigId));
-        this.pipeline = pipelineClient.getPipeline(config.getPipelineId());
+                .orElseThrow(() -> new ResourceNotFoundException("error.batch.schedule.not.found", scheduleConfigId));
+        this.pipeline = pipelineClient.getPipeline(config.getPipelineId(), config.getCompanyId());
+        log.info("ForecastItemProcessor initialised: scheduleId={}, pipeline='{}', filters={}, fields={}",
+                scheduleConfigId, pipeline.getName(),
+                pipeline.getFilters() != null ? pipeline.getFilters().size() : 0,
+                pipeline.getFields() != null ? pipeline.getFields().size() : 0);
     }
 
     @Override
     public Map<String, Object> process(Map<String, Object> record) {
         if (!filterEngine.matches(record, pipeline.getFilters())) {
+            log.debug("Record filtered out by pipeline '{}'", pipeline.getName());
             return null;
         }
         return transformationEngine.apply(record, pipeline.getFields());

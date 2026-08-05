@@ -1,0 +1,22 @@
+@startuml pipeline-flow
+actor Client
+participant "PipelineController" as PC
+participant "PipelineService" as PS
+participant "TemplateClient" as TC
+database "pipelinedb" as DB
+
+Client -> PC : POST /api/pipelines\n(CreateForecastPipelineRequest)
+PC -> PS : create(request)
+PS -> PS : Verificar unicidade do nome
+PS -> TC : GET v1/api/templates/{templateId}
+TC --> PS : TemplateDto (para desnormalizar templateName)
+PS -> DB : Salvar ForecastPipeline\n+ PipelineFields\n+ PipelineFilters
+PS --> PC : ForecastPipelineResponse
+PC --> Client : 201 Created
+
+Client -> PC : GET /api/pipelines/{id}/dto
+PC -> PS : getDto(id)
+PS -> DB : Carregar ForecastPipeline
+PS --> PC : PipelineDto
+PC --> Client : 200 OK (consumido pelo batch-service)
+@enduml

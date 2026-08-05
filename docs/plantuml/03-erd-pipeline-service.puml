@@ -1,0 +1,37 @@
+@startuml pipeline-erd
+entity "ForecastPipeline" as P {
+  * id : Long <<PK>>
+  --
+  templateId : Long <<FK ext>>
+  templateName : String(150)
+  name : String(150) <<unique>>
+  description : String(1000)
+  active : Boolean
+  createdAt : LocalDateTime
+  updatedAt : LocalDateTime
+}
+
+entity "PipelineField" as PF {
+  * id : Long <<PK>>
+  --
+  sourceFieldName : String(120)
+  targetFieldName : String(120)
+  transformationType : TransformationType
+  transformationConfig : TEXT
+  positionIndex : Integer
+  active : Boolean
+}
+
+entity "PipelineFilter" as PFI {
+  * id : Long <<PK>>
+  --
+  fieldName : String(120)
+  operator : FilterOperator
+  value : String(500)
+  logicalOperator : LogicalOperator
+  orderIndex : Integer
+}
+
+P ||--o{ PF : "fields"
+P ||--o{ PFI : "filters"
+@enduml

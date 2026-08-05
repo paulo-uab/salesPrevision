@@ -1,6 +1,6 @@
 package com.uab.salesprevision.ingestion.client;
 
-import com.uab.core.dto.ingestion.TemplateDto;
+import com.uab.salesprevision.ingestion.client.dto.TemplateClientDto;
 import com.uab.core.exception.ResourceNotFoundException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -20,12 +20,12 @@ public class TemplateClient {
         this.restClient = builder.baseUrl(templateServiceUrl).build();
     }
 
-    public TemplateDto getTemplate(Long templateId) {
+    public TemplateClientDto getTemplate(Long templateId) {
         try {
             return restClient.get()
                     .uri(serviceUri + "{id}", templateId)
                     .retrieve()
-                    .body(TemplateDto.class);
+                    .body(TemplateClientDto.class);
         } catch (HttpClientErrorException.NotFound ex) {
             throw new ResourceNotFoundException("error.template.not.found", templateId);
         }

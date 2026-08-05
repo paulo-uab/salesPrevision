@@ -1,0 +1,4 @@
+com.uab.core.correlation.CorrelationIdAutoConfiguration
+com.uab.core.serviceauth.ServiceAuthAutoConfiguration
+com.uab.core.exception.GlobalExceptionHandlerAutoConfiguration
+com.uab.core.tokenrelay.TokenRelayAutoConfiguration

@@ -1,0 +1,37 @@
+@startuml ingestion-flow
+actor Client
+participant "IngestionController" as IC
+participant "IngestionService" as IS
+participant "TemplateClient" as TC
+participant "IngestionProcessorFactory" as IPF
+participant "CsvIngestionProcessor" as CSV
+database "ingestiondb" as DB
+database "FileSystem" as FS
+
+Client -> IC : POST /api/ingestion/jobs\n(file, templateId, autoProcess=true)
+IC -> IS : createJob(file, templateId, createdBy, autoProcess)
+IS -> TC : GET v1/api/templates/{templateId}
+TC --> IS : TemplateDto
+IS -> FS : Guardar ficheiro em\nuploads/template_{id}/{UUID}_{nome}
+IS -> IS : Calcular SHA-256
+IS -> DB : Salvar IngestionJob (status=RECEIVED)
+IS -> IPF : getProcessor(FileType.CSV)
+IPF --> IS : CsvIngestionProcessor
+IS -> CSV : process(job, template)
+loop Para cada linha do ficheiro
+  CSV -> CSV : mapear colunas por sourceName / positionIndex
+  loop Para cada TemplateField
+    CSV -> CSV : convertAndValidateField()
+    note right: Conversão de tipo\n+ regras de validação\n(NOT_NULL, REGEX, MIN, MAX, ENUM, DATE_FORMAT)
+  end
+  alt Linha válida
+    CSV -> DB : Salvar IngestedRecord (status=VALID, normalizedPayload)
+  else Linha com erros
+    CSV -> DB : Salvar IngestedRecord (status=INVALID)
+    CSV -> DB : Salvar IngestionError (por campo em falha)
+  end
+end
+CSV -> DB : Actualizar IngestionJob\n(status=COMPLETED, recordCount, errorCount)
+IS --> IC : CreateIngestionJobResponse
+IC --> Client : 201 Created
+@enduml

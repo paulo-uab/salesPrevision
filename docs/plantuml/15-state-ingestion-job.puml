@@ -1,0 +1,8 @@
+@startuml ingestion-states
+[*] --> RECEIVED : createJob()
+RECEIVED --> PROCESSING : processJob() iniciado
+PROCESSING --> COMPLETED : processamento concluído sem erros críticos
+PROCESSING --> FAILED : excepção não tratada
+COMPLETED --> [*]
+FAILED --> [*]
+@enduml

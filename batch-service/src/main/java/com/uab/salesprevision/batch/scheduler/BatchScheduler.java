@@ -1,6 +1,6 @@
 package com.uab.salesprevision.batch.scheduler;
 
-import com.uab.salesprevision.batch.entity.BatchScheduleConfig;
+import com.uab.salesprevision.batch.model.BatchScheduleConfig;
 import com.uab.salesprevision.batch.repository.BatchScheduleConfigRepository;
 import com.uab.salesprevision.batch.service.BatchScheduleService;
 import lombok.RequiredArgsConstructor;
@@ -38,12 +38,12 @@ public class BatchScheduler {
         for (BatchScheduleConfig config : active) {
             try {
                 if (isDue(config, now)) {
-                    log.info("Disparando batch para schedule {} ({})", config.getId(), config.getCronExpression());
+                    log.info("Triggering schedule id={}, cron='{}'", config.getId(), config.getCronExpression());
                     lastRunTimes.put(config.getId(), now);
                     batchScheduleService.runJob(config);
                 }
             } catch (Exception e) {
-                log.error("Erro ao processar schedule {}: {}", config.getId(), e.getMessage());
+                log.error("Failed to run schedule id={}: {}", config.getId(), e.getMessage());
             }
         }
     }
@@ -56,7 +56,7 @@ public class BatchScheduler {
             LocalDateTime nextAfterLastRun = cron.next(lastRun);
             return nextAfterLastRun != null && !nextAfterLastRun.isAfter(now);
         } catch (Exception e) {
-            log.warn("Expressão cron inválida para schedule {}: {}", config.getId(), config.getCronExpression());
+            log.warn("Invalid cron expression for schedule id={}: '{}'", config.getId(), config.getCronExpression());
             return false;
         }
     }

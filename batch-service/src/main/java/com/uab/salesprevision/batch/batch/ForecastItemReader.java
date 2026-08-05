@@ -1,9 +1,9 @@
 package com.uab.salesprevision.batch.batch;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.uab.core.dto.ingestion.IngestionJobResponse;
+import com.uab.salesprevision.batch.client.dto.IngestionJobDto;
 import com.uab.salesprevision.batch.client.IngestionClient;
-import com.uab.salesprevision.batch.entity.BatchScheduleConfig;
+import com.uab.salesprevision.batch.model.BatchScheduleConfig;
 import com.uab.salesprevision.batch.repository.BatchScheduleConfigRepository;
 import com.uab.core.exception.ResourceNotFoundException;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +42,7 @@ public class ForecastItemReader implements ItemReader<Map<String, Object>> {
     @BeforeStep
     public void beforeStep(StepExecution stepExecution) {
         this.scheduleConfigId = stepExecution.getJobParameters().getLong("scheduleConfigId");
+        log.debug("ForecastItemReader initialised: scheduleConfigId={}", scheduleConfigId);
     }
 
     @Override
@@ -55,34 +56,35 @@ public class ForecastItemReader implements ItemReader<Map<String, Object>> {
     @SuppressWarnings("unchecked")
     private Queue<Map<String, Object>> loadRecords() {
         BatchScheduleConfig config = scheduleConfigRepository.findById(scheduleConfigId)
-                .orElseThrow(() -> new ResourceNotFoundException("Schedule config não encontrado: " + scheduleConfigId));
+                .orElseThrow(() -> new ResourceNotFoundException("error.batch.schedule.not.found", scheduleConfigId));
 
         LocalDateTime cutoff = LocalDateTime.now().minusDays(config.getLookbackDays());
+        log.debug("Loading records: scheduleId={}, lookbackDays={}, cutoff={}", scheduleConfigId, config.getLookbackDays(), cutoff);
 
-        List<IngestionJobResponse> jobs = ingestionClient.getCompletedJobs(
-                config.getPipelineId());
+        List<IngestionJobDto> jobs = ingestionClient.getCompletedJobs(config.getPipelineId(), config.getCompanyId());
 
         Queue<Map<String, Object>> result = new LinkedList<>();
 
-        for (IngestionJobResponse job : jobs) {
+        for (IngestionJobDto job : jobs) {
             if (job.getCreatedAt() != null && job.getCreatedAt().isBefore(cutoff)) {
+                log.debug("Skipping job id={}: createdAt={} is before cutoff={}", job.getId(), job.getCreatedAt(), cutoff);
                 continue;
             }
-            loadJobRecords(job.getId(), result);
+            loadJobRecords(job.getId(), config.getCompanyId(), result);
         }
 
-        log.info("ForecastItemReader carregou {} registos para o schedule {}", result.size(), scheduleConfigId);
+        log.info("Records loaded: scheduleId={}, total={}", scheduleConfigId, result.size());
         return result;
     }
 
     @SuppressWarnings("unchecked")
-    private void loadJobRecords(Long jobId, Queue<Map<String, Object>> result) {
+    private void loadJobRecords(Long jobId, Long companyId, Queue<Map<String, Object>> result) {
         int page = 0;
         int size = 200;
         boolean hasMore = true;
 
         while (hasMore) {
-            Map<String, Object> pageData = ingestionClient.getRecordsPage(jobId, page, size);
+            Map<String, Object> pageData = ingestionClient.getRecordsPage(jobId, page, size, companyId);
             if (pageData == null) break;
 
             List<Map<String, Object>> content = (List<Map<String, Object>>) pageData.get("content");
@@ -95,7 +97,7 @@ public class ForecastItemReader implements ItemReader<Map<String, Object>> {
                         Map<String, Object> payload = objectMapper.readValue(normalized, Map.class);
                         result.add(payload);
                     } catch (Exception e) {
-                        log.warn("Erro ao desserializar registo do job {}: {}", jobId, e.getMessage());
+                        log.warn("Failed to deserialise record from job id={}: {}", jobId, e.getMessage());
                     }
                 }
             }

@@ -1,6 +1,6 @@
 package com.uab.salesprevision.batch.service;
 
-import com.uab.core.dto.pipeline.PipelineDto;
+import com.uab.salesprevision.batch.client.dto.PipelineClientDto;
 import com.uab.core.enums.BatchExecutionStatus;
 import com.uab.core.exception.BadRequestException;
 import com.uab.core.exception.ResourceNotFoundException;
@@ -8,8 +8,8 @@ import com.uab.salesprevision.batch.client.PipelineClient;
 import com.uab.salesprevision.batch.dto.BatchExecutionResponse;
 import com.uab.salesprevision.batch.dto.BatchScheduleResponse;
 import com.uab.salesprevision.batch.dto.CreateBatchScheduleRequest;
-import com.uab.salesprevision.batch.entity.BatchExecution;
-import com.uab.salesprevision.batch.entity.BatchScheduleConfig;
+import com.uab.salesprevision.batch.model.BatchExecution;
+import com.uab.salesprevision.batch.model.BatchScheduleConfig;
 import com.uab.salesprevision.batch.repository.BatchExecutionRepository;
 import com.uab.salesprevision.batch.repository.BatchScheduleConfigRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,9 +17,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.job.parameters.JobParametersBuilder;
-import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.batch.core.launch.JobOperator;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,14 +36,17 @@ public class BatchScheduleService {
     private final BatchScheduleConfigRepository scheduleConfigRepository;
     private final BatchExecutionRepository executionRepository;
     private final PipelineClient pipelineClient;
-    private final JobLauncher jobLauncher;
+    private final JobOperator jobOperator;
     private final Job forecastJob;
 
     @Transactional
     public BatchScheduleResponse create(CreateBatchScheduleRequest request) {
-        PipelineDto pipeline = pipelineClient.getPipeline(request.getPipelineId());
+        Long companyId = currentCompanyId();
+        log.info("Creating schedule: pipelineId={}, cron='{}', companyId={}", request.getPipelineId(), request.getCronExpression(), companyId);
+        PipelineClientDto pipeline = pipelineClient.getPipeline(request.getPipelineId(), companyId);
 
         BatchScheduleConfig config = BatchScheduleConfig.builder()
+                .companyId(companyId)
                 .pipelineId(request.getPipelineId())
                 .pipelineName(pipeline.getName())
                 .cronExpression(request.getCronExpression())
@@ -51,24 +56,32 @@ public class BatchScheduleService {
                 .createdBy(request.getCreatedBy())
                 .build();
 
-        return toResponse(scheduleConfigRepository.save(config));
+        BatchScheduleResponse response = toResponse(scheduleConfigRepository.save(config));
+        log.info("Schedule created: id={}, pipeline='{}'", response.getId(), pipeline.getName());
+        return response;
     }
 
     @Transactional(readOnly = true)
     public List<BatchScheduleResponse> findAll() {
-        return scheduleConfigRepository.findAll().stream()
+        Long companyId = currentCompanyId();
+        log.debug("Listing schedules: companyId={}", companyId);
+        List<BatchScheduleResponse> result = scheduleConfigRepository.findByCompanyId(companyId).stream()
                 .map(this::toResponse)
                 .toList();
+        log.debug("Found {} schedules", result.size());
+        return result;
     }
 
     @Transactional(readOnly = true)
     public BatchScheduleResponse findById(Long id) {
-        return toResponse(getEntity(id));
+        log.debug("Fetching schedule id={}", id);
+        return toResponse(getEntity(id, currentCompanyId()));
     }
 
     @Transactional(readOnly = true)
     public Page<BatchExecutionResponse> findExecutions(Long scheduleId, Pageable pageable) {
-        ensureExists(scheduleId);
+        ensureExists(scheduleId, currentCompanyId());
+        log.debug("Fetching executions: scheduleId={}, page={}", scheduleId, pageable.getPageNumber());
         return executionRepository
                 .findByScheduleConfigIdOrderByCreatedAtDesc(scheduleId, pageable)
                 .map(this::toExecutionResponse);
@@ -76,9 +89,11 @@ public class BatchScheduleService {
 
     @Transactional
     public BatchExecutionResponse triggerManually(Long scheduleId) {
-        BatchScheduleConfig config = getEntity(scheduleId);
+        log.info("Manual trigger: scheduleId={}", scheduleId);
+        BatchScheduleConfig config = getEntity(scheduleId, currentCompanyId());
 
         if (executionRepository.existsByScheduleConfigIdAndStatus(scheduleId, BatchExecutionStatus.RUNNING)) {
+            log.warn("Schedule id={} already has a running execution", scheduleId);
             throw new BadRequestException("error.batch.already.running");
         }
 
@@ -86,6 +101,7 @@ public class BatchScheduleService {
     }
 
     public BatchExecutionResponse runJob(BatchScheduleConfig config) {
+        log.info("Starting job: scheduleId={}, pipeline='{}'", config.getId(), config.getPipelineName());
         BatchExecution execution = BatchExecution.builder()
                 .scheduleConfig(config)
                 .status(BatchExecutionStatus.RUNNING)
@@ -102,13 +118,15 @@ public class BatchScheduleService {
                     .addLocalDateTime("startedAt", LocalDateTime.now())
                     .toJobParameters();
 
-            var jobExecution = jobLauncher.run(forecastJob, params);
+            var jobExecution = jobOperator.start(forecastJob, params);
 
             execution.setSpringBatchJobExecutionId(jobExecution.getId());
             execution.setStatus(BatchExecutionStatus.COMPLETED);
             execution.setFinishedAt(LocalDateTime.now());
+            log.info("Job completed: scheduleId={}, executionId={}, springJobId={}",
+                    config.getId(), execution.getId(), jobExecution.getId());
         } catch (Exception e) {
-            log.error("Erro na execução do batch para schedule {}: {}", config.getId(), e.getMessage(), e);
+            log.error("Job failed: scheduleId={}, reason={}", config.getId(), e.getMessage(), e);
             execution.setStatus(BatchExecutionStatus.FAILED);
             execution.setFinishedAt(LocalDateTime.now());
             execution.setErrorMessage(e.getMessage());
@@ -117,15 +135,28 @@ public class BatchScheduleService {
         return toExecutionResponse(executionRepository.save(execution));
     }
 
-    private BatchScheduleConfig getEntity(Long id) {
-        return scheduleConfigRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("error.batch.schedule.not.found", id));
+    private BatchScheduleConfig getEntity(Long id, Long companyId) {
+        return scheduleConfigRepository.findByIdAndCompanyId(id, companyId)
+                .orElseThrow(() -> {
+                    log.warn("Schedule not found: id={}, companyId={}", id, companyId);
+                    return new ResourceNotFoundException("error.batch.schedule.not.found", id);
+                });
     }
 
-    private void ensureExists(Long id) {
-        if (!scheduleConfigRepository.existsById(id)) {
+    private void ensureExists(Long id, Long companyId) {
+        if (scheduleConfigRepository.findByIdAndCompanyId(id, companyId).isEmpty()) {
+            log.warn("Schedule not found: id={}, companyId={}", id, companyId);
             throw new ResourceNotFoundException("error.batch.schedule.not.found", id);
         }
+    }
+
+    private Long currentCompanyId() {
+        Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Object companyId = jwt.getClaim("companyId");
+        if (!(companyId instanceof Number number)) {
+            throw new BadRequestException("error.batch.company.missing");
+        }
+        return number.longValue();
     }
 
     private BatchScheduleResponse toResponse(BatchScheduleConfig config) {

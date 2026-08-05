@@ -1,0 +1,28 @@
+@startuml processor-strategy
+interface IngestionProcessor {
+  +process(IngestionJob, TemplateDto) : void
+  +supports(FileType) : boolean
+}
+
+abstract class AbstractIngestionProcessor {
+  #doProcess(IngestionJob, TemplateDto) : void
+  #convertAndValidateField(TemplateFieldDto, String) : Object
+  #saveRecord(...)
+  #saveError(...)
+}
+
+class CsvIngestionProcessor {
+  +doProcess(IngestionJob, TemplateDto) : void
+  -parseDelimiter(String) : String
+  -mapHeaders(String[], TemplateDto) : Map<String, Integer>
+}
+
+class IngestionProcessorFactory {
+  -processors : List<IngestionProcessor>
+  +getProcessor(FileType) : IngestionProcessor
+}
+
+IngestionProcessor <|.. AbstractIngestionProcessor
+AbstractIngestionProcessor <|-- CsvIngestionProcessor
+IngestionProcessorFactory o-- IngestionProcessor
+@enduml

@@ -13,22 +13,22 @@ import lombok.Setter;
 @NoArgsConstructor
 public class CreateBatchScheduleRequest {
 
-    @NotNull(message = "O pipelineId é obrigatório")
+    @NotNull(message = "{validation.batch.pipeline.id.required}")
     private Long pipelineId;
 
-    @NotBlank(message = "A expressão cron é obrigatória")
-    @Size(max = 150)
+    @NotBlank(message = "{validation.batch.cron.required}")
+    @Size(max = 150, message = "{validation.batch.cron.size}")
     private String cronExpression;
 
-    @Positive(message = "O lookbackDays deve ser positivo")
+    @Positive(message = "{validation.batch.lookback.days.positive}")
     private Integer lookbackDays = 7;
 
-    @NotBlank(message = "O URL da API de previsão é obrigatório")
-    @Size(max = 500)
+    @NotBlank(message = "{validation.batch.prediction.url.required}")
+    @Size(max = 500, message = "{validation.batch.prediction.url.size}")
     private String predictionApiUrl;
 
     private Boolean active = true;
 
-    @Size(max = 100)
+    @Size(max = 100, message = "{validation.batch.created.by.size}")
     private String createdBy;
 }

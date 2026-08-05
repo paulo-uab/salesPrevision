@@ -1,0 +1,59 @@
+@startuml class-overview
+package "template-service" {
+  class IngestionTemplate
+  class TemplateField
+  class TemplateValidationRule
+  class IngestionTemplateService
+  class IngestionTemplateController
+  IngestionTemplate "1" *-- "0..*" TemplateField
+  TemplateField "1" *-- "0..*" TemplateValidationRule
+  IngestionTemplateController --> IngestionTemplateService
+}
+
+package "ingestion-service" {
+  class IngestionJob
+  class IngestedRecord
+  class IngestionError
+  class IngestionService
+  class IngestionController
+  class CsvIngestionProcessor
+  IngestionJob "1" *-- "0..*" IngestedRecord
+  IngestionJob "1" *-- "0..*" IngestionError
+  IngestedRecord "1" *-- "0..*" IngestionError
+  IngestionController --> IngestionService
+  IngestionService --> CsvIngestionProcessor
+}
+
+package "pipeline-service" {
+  class ForecastPipeline
+  class PipelineField
+  class PipelineFilter
+  class PipelineService
+  class PipelineController
+  ForecastPipeline "1" *-- "0..*" PipelineField
+  ForecastPipeline "1" *-- "0..*" PipelineFilter
+  PipelineController --> PipelineService
+}
+
+package "batch-service" {
+  class BatchScheduleConfig
+  class BatchExecution
+  class BatchScheduleService
+  class BatchController
+  class ForecastItemReader
+  class ForecastItemProcessor
+  class ForecastItemWriter
+  class FilterEngine
+  class TransformationEngine
+  BatchScheduleConfig "1" *-- "0..*" BatchExecution
+  BatchController --> BatchScheduleService
+  ForecastItemProcessor --> FilterEngine
+  ForecastItemProcessor --> TransformationEngine
+}
+
+package "core" {
+  class GlobalExceptionHandler
+  class BadRequestException
+  class ResourceNotFoundException
+}
+@enduml

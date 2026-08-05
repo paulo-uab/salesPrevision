@@ -1,9 +1,9 @@
 package com.uab.salesprevision.ingestion.service;
 
 
-import com.uab.salesprevision.ingestion.entity.IngestedRecord;
-import com.uab.salesprevision.ingestion.entity.IngestionError;
-import com.uab.salesprevision.ingestion.entity.IngestionJob;
+import com.uab.salesprevision.ingestion.model.IngestedRecord;
+import com.uab.salesprevision.ingestion.model.IngestionError;
+import com.uab.salesprevision.ingestion.model.IngestionJob;
 import com.uab.core.enums.ValidationStatus;
 import org.springframework.stereotype.Service;
 

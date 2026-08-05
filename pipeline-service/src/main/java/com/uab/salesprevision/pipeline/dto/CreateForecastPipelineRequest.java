@@ -19,20 +19,21 @@ import java.util.List;
 @NoArgsConstructor
 public class CreateForecastPipelineRequest {
 
-    @NotNull(message = "O templateId é obrigatório")
+    @NotNull(message = "{validation.pipeline.template.id.required}")
     private Long templateId;
 
-    @NotBlank(message = "O nome é obrigatório")
-    @Size(max = 150)
+    @NotBlank(message = "{validation.pipeline.name.required}")
+    @Size(max = 150, message = "{validation.pipeline.name.size}")
     private String name;
 
-    @Size(max = 1000)
+    @Size(max = 1000, message = "{validation.pipeline.description.size}")
     private String description;
 
     private Boolean active = true;
 
     @Valid
-    @Size(min = 1, message = "É necessário pelo menos um campo")
+    @NotNull(message = "{validation.pipeline.fields.required}")
+    @Size(min = 1, message = "{validation.pipeline.fields.required}")
     private List<FieldRequest> fields = new ArrayList<>();
 
     @Valid
@@ -43,10 +44,10 @@ public class CreateForecastPipelineRequest {
     @NoArgsConstructor
     public static class FieldRequest {
 
-        @NotBlank(message = "O nome do campo de origem é obrigatório")
+        @NotBlank(message = "{validation.pipeline.field.source.required}")
         private String sourceFieldName;
 
-        @NotBlank(message = "O nome do campo de destino é obrigatório")
+        @NotBlank(message = "{validation.pipeline.field.target.required}")
         private String targetFieldName;
 
         private TransformationType transformationType = TransformationType.NONE;
@@ -63,10 +64,10 @@ public class CreateForecastPipelineRequest {
     @NoArgsConstructor
     public static class FilterRequest {
 
-        @NotBlank(message = "O nome do campo é obrigatório")
+        @NotBlank(message = "{validation.pipeline.filter.field.required}")
         private String fieldName;
 
-        @NotNull(message = "O operador é obrigatório")
+        @NotNull(message = "{validation.pipeline.filter.operator.required}")
         private FilterOperator operator;
 
         private String value;

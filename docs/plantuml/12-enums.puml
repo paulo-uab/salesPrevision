@@ -1,0 +1,77 @@
+@startuml enums
+enum FileType {
+  CSV
+  JSON
+  XLSX
+  TXT
+  UNKNOWN
+}
+
+enum FieldDataType {
+  STRING
+  INTEGER
+  LONG
+  DECIMAL
+  BOOLEAN
+  DATE
+  DATETIME
+}
+
+enum TemplateRuleType {
+  NOT_NULL
+  REGEX
+  MIN
+  MAX
+  ENUM
+  DATE_FORMAT
+}
+
+enum IngestionStatus {
+  RECEIVED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ValidationStatus {
+  VALID
+  INVALID
+  WARNING
+}
+
+enum TransformationType {
+  NONE
+  RENAME
+  SCALE
+  DATE_FORMAT
+  CAST
+  REPLACE
+}
+
+enum FilterOperator {
+  EQ
+  NEQ
+  GT
+  GTE
+  LT
+  LTE
+  IN
+  NOT_IN
+  IS_NULL
+  IS_NOT_NULL
+  BETWEEN
+  CONTAINS
+}
+
+enum LogicalOperator {
+  AND
+  OR
+}
+
+enum BatchExecutionStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+@enduml

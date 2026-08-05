@@ -1,7 +1,7 @@
 package com.uab.salesprevision.batch.batch;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.uab.salesprevision.batch.entity.BatchScheduleConfig;
+import com.uab.salesprevision.batch.model.BatchScheduleConfig;
 import com.uab.salesprevision.batch.repository.BatchExecutionRepository;
 import com.uab.salesprevision.batch.repository.BatchScheduleConfigRepository;
 import com.uab.core.exception.ResourceNotFoundException;
@@ -46,8 +46,10 @@ public class ForecastItemWriter implements ItemWriter<Map<String, Object>> {
     public void beforeStep(StepExecution stepExecution) {
         Long scheduleConfigId = stepExecution.getJobParameters().getLong("scheduleConfigId");
         this.scheduleConfig = scheduleConfigRepository.findById(scheduleConfigId)
-                .orElseThrow(() -> new ResourceNotFoundException("Schedule config não encontrado: " + scheduleConfigId));
+                .orElseThrow(() -> new ResourceNotFoundException("error.batch.schedule.not.found", scheduleConfigId));
         this.batchExecutionId = stepExecution.getJobParameters().getLong("batchExecutionId");
+        log.debug("ForecastItemWriter initialised: scheduleId={}, executionId={}, url='{}'",
+                scheduleConfigId, batchExecutionId, scheduleConfig.getPredictionApiUrl());
     }
 
     @Override
@@ -76,16 +78,16 @@ public class ForecastItemWriter implements ItemWriter<Map<String, Object>> {
                 executionRepository.save(exec);
             });
 
-            log.info("Enviados {} registos para {}", records.size(), scheduleConfig.getPredictionApiUrl());
+            log.info("Sent {} records to '{}'", records.size(), scheduleConfig.getPredictionApiUrl());
         } catch (Exception e) {
             executionRepository.findById(batchExecutionId).ifPresent(exec -> {
                 exec.setRecordsFailed(exec.getRecordsFailed() + records.size());
                 executionRepository.save(exec);
             });
-            log.error("Erro ao enviar registos para a API de previsão: {}", e.getMessage());
-            throw new RuntimeException("Falha ao enviar para a API de previsão: " + e.getMessage(), e);
+            log.error("Failed to send {} records to '{}': {}", records.size(),
+                    scheduleConfig.getPredictionApiUrl(), e.getMessage(), e);
+            throw new RuntimeException(
+                    "Failed to send records to prediction API: " + e.getMessage(), e);
         }
     }
-
-
 }

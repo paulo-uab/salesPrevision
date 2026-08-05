@@ -1,10 +1,10 @@
 package com.uab.salesprevision.template.mappers;
 
-import com.uab.core.dto.template.CreateIngestionTemplateRequest;
-import com.uab.core.dto.template.IngestionTemplateResponse;
-import com.uab.salesprevision.template.entity.IngestionTemplate;
-import com.uab.salesprevision.template.entity.TemplateField;
-import com.uab.salesprevision.template.entity.TemplateValidationRule;
+import com.uab.salesprevision.template.dto.CreateIngestionTemplateRequest;
+import com.uab.salesprevision.template.dto.IngestionTemplateResponse;
+import com.uab.salesprevision.template.model.IngestionTemplate;
+import com.uab.salesprevision.template.model.TemplateField;
+import com.uab.salesprevision.template.model.TemplateValidationRule;
 import org.mapstruct.AfterMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;

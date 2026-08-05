@@ -1,6 +1,6 @@
 package com.uab.salesprevision.ingestion.repository;
 
-import com.uab.salesprevision.ingestion.entity.IngestedRecord;
+import com.uab.salesprevision.ingestion.model.IngestedRecord;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

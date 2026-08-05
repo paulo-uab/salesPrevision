@@ -1,0 +1,47 @@
+@startuml ingestion-erd
+entity "IngestionJob" as J {
+  * id : Long <<PK>>
+  --
+  templateId : Long <<FK ext>>
+  templateName : String(150)
+  status : IngestionStatus
+  originalFileName : String(255)
+  storedFileName : String(255)
+  contentType : String(100)
+  fileSize : Long
+  storagePath : String(500)
+  checksum : String(128)
+  startedAt : LocalDateTime
+  finishedAt : LocalDateTime
+  createdAt : LocalDateTime
+  createdBy : String(100)
+  errorMessage : String(4000)
+  recordCount : Long
+  errorCount : Long
+}
+
+entity "IngestedRecord" as REC {
+  * id : Long <<PK>>
+  --
+  recordIndex : Long
+  rawPayload : TEXT
+  normalizedPayload : TEXT
+  validationStatus : ValidationStatus
+  createdAt : LocalDateTime
+}
+
+entity "IngestionError" as ERR {
+  * id : Long <<PK>>
+  --
+  fieldName : String(100)
+  errorType : String(100)
+  message : String(4000)
+  rawValue : String(1000)
+  lineNumber : Long
+  createdAt : LocalDateTime
+}
+
+J ||--o{ REC : "records"
+J ||--o{ ERR : "errors"
+REC ||--o{ ERR : "errors"
+@enduml

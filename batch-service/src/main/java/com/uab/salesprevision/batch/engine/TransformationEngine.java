@@ -1,6 +1,6 @@
 package com.uab.salesprevision.batch.engine;
 
-import com.uab.core.dto.pipeline.PipelineDto;
+import com.uab.salesprevision.batch.client.dto.PipelineClientDto;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,15 +21,15 @@ public class TransformationEngine {
 
     private final ObjectMapper objectMapper;
 
-    public Map<String, Object> apply(Map<String, Object> rawRecord, List<PipelineDto.FieldDto> fields) {
+    public Map<String, Object> apply(Map<String, Object> rawRecord, List<PipelineClientDto.FieldDto> fields) {
         Map<String, Object> result = new LinkedHashMap<>();
 
-        List<PipelineDto.FieldDto> activeFields = fields.stream()
+        List<PipelineClientDto.FieldDto> activeFields = fields.stream()
                 .filter(f -> Boolean.TRUE.equals(f.getActive()))
                 .sorted(Comparator.comparingInt(f -> f.getPositionIndex() == null ? Integer.MAX_VALUE : f.getPositionIndex()))
                 .toList();
 
-        for (PipelineDto.FieldDto field : activeFields) {
+        for (PipelineClientDto.FieldDto field : activeFields) {
             Object value = rawRecord.get(field.getSourceFieldName());
             String transformed = value == null ? null : String.valueOf(value);
             transformed = applyTransformation(field, transformed);
@@ -39,7 +39,7 @@ public class TransformationEngine {
         return result;
     }
 
-    private String applyTransformation(PipelineDto.FieldDto field, String value) {
+    private String applyTransformation(PipelineClientDto.FieldDto field, String value) {
         if (field.getTransformationType() == null) {
             return value;
         }

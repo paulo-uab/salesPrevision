@@ -1,11 +1,11 @@
 package com.uab.salesprevision.pipeline.mapper;
 
-import com.uab.core.dto.pipeline.PipelineDto;
+import com.uab.salesprevision.pipeline.dto.PipelineDto;
 import com.uab.salesprevision.pipeline.dto.CreateForecastPipelineRequest;
 import com.uab.salesprevision.pipeline.dto.ForecastPipelineResponse;
-import com.uab.salesprevision.pipeline.entity.ForecastPipeline;
-import com.uab.salesprevision.pipeline.entity.PipelineField;
-import com.uab.salesprevision.pipeline.entity.PipelineFilter;
+import com.uab.salesprevision.pipeline.model.ForecastPipeline;
+import com.uab.salesprevision.pipeline.model.PipelineField;
+import com.uab.salesprevision.pipeline.model.PipelineFilter;
 import org.mapstruct.*;
 
 import java.util.List;

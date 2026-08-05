@@ -1,13 +1,14 @@
 package com.uab.salesprevision.ingestion.controller;
 
 
-import com.uab.core.dto.ingestion.CreateIngestionJobResponse;
-import com.uab.core.dto.ingestion.IngestedRecordResponse;
-import com.uab.core.dto.ingestion.IngestionErrorResponse;
-import com.uab.core.dto.ingestion.IngestionJobResponse;
+import com.uab.salesprevision.ingestion.dto.CreateIngestionJobResponse;
+import com.uab.salesprevision.ingestion.dto.IngestedRecordResponse;
+import com.uab.salesprevision.ingestion.dto.IngestionErrorResponse;
+import com.uab.salesprevision.ingestion.dto.IngestionJobResponse;
 import com.uab.core.enums.IngestionStatus;
 import com.uab.salesprevision.ingestion.service.IngestionService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -18,8 +19,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
+@Slf4j
 @RestController
-@RequestMapping("/api/ingestion/jobs")
+@RequestMapping("v1/api/ingestion/jobs")
 @RequiredArgsConstructor
 public class IngestionController {
 
@@ -32,19 +34,19 @@ public class IngestionController {
             @RequestParam(value = "createdBy", required = false) String createdBy,
             @RequestParam(value = "autoProcess", defaultValue = "true") boolean autoProcess) {
 
-        CreateIngestionJobResponse response = ingestionService.createJob(
-                file,
-                templateId,
-                createdBy,
-                autoProcess
-        );
+        log.info("POST /v1/api/ingestion/jobs - file='{}', templateId={}, autoProcess={}",
+                file != null ? file.getOriginalFilename() : null, templateId, autoProcess);
 
+        CreateIngestionJobResponse response = ingestionService.createJob(file, templateId, createdBy, autoProcess);
+        log.info("Job created: id={}", response.getJobId());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/{jobId}/process")
-    public ResponseEntity<IngestionJobResponse> processJob(@PathVariable Long jobId) {
-        return ResponseEntity.ok(ingestionService.processJob(jobId));
+    public ResponseEntity<Void> processJob(@PathVariable Long jobId) {
+        log.info("POST /v1/api/ingestion/jobs/{}/process", jobId);
+        ingestionService.submitForProcessing(jobId);
+        return ResponseEntity.accepted().build();
     }
 
     @GetMapping
@@ -52,11 +54,13 @@ public class IngestionController {
             @RequestParam(value = "templateId", required = false) Long templateId,
             @RequestParam(value = "status", required = false) IngestionStatus status) {
 
+        log.debug("GET /v1/api/ingestion/jobs - templateId={}, status={}", templateId, status);
         return ResponseEntity.ok(ingestionService.findAll(templateId, status));
     }
 
     @GetMapping("/{jobId}")
     public ResponseEntity<IngestionJobResponse> findById(@PathVariable Long jobId) {
+        log.debug("GET /v1/api/ingestion/jobs/{}", jobId);
         return ResponseEntity.ok(ingestionService.findById(jobId));
     }
 
@@ -64,6 +68,7 @@ public class IngestionController {
     public ResponseEntity<Page<IngestedRecordResponse>> findRecords(
             @PathVariable Long jobId,
             Pageable pageable) {
+        log.debug("GET /v1/api/ingestion/jobs/{}/records - page={}", jobId, pageable.getPageNumber());
         return ResponseEntity.ok(ingestionService.findRecords(jobId, pageable));
     }
 
@@ -71,6 +76,7 @@ public class IngestionController {
     public ResponseEntity<Page<IngestionErrorResponse>> findErrors(
             @PathVariable Long jobId,
             Pageable pageable) {
+        log.debug("GET /v1/api/ingestion/jobs/{}/errors - page={}", jobId, pageable.getPageNumber());
         return ResponseEntity.ok(ingestionService.findErrors(jobId, pageable));
     }
 }

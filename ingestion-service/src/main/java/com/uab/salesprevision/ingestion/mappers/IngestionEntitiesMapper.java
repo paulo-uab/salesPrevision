@@ -1,12 +1,12 @@
 package com.uab.salesprevision.ingestion.mappers;
 
-import com.uab.core.dto.ingestion.CreateIngestionJobResponse;
-import com.uab.core.dto.ingestion.IngestedRecordResponse;
-import com.uab.core.dto.ingestion.IngestionErrorResponse;
-import com.uab.core.dto.ingestion.IngestionJobResponse;
-import com.uab.salesprevision.ingestion.entity.IngestedRecord;
-import com.uab.salesprevision.ingestion.entity.IngestionError;
-import com.uab.salesprevision.ingestion.entity.IngestionJob;
+import com.uab.salesprevision.ingestion.dto.CreateIngestionJobResponse;
+import com.uab.salesprevision.ingestion.dto.IngestedRecordResponse;
+import com.uab.salesprevision.ingestion.dto.IngestionErrorResponse;
+import com.uab.salesprevision.ingestion.dto.IngestionJobResponse;
+import com.uab.salesprevision.ingestion.model.IngestedRecord;
+import com.uab.salesprevision.ingestion.model.IngestionError;
+import com.uab.salesprevision.ingestion.model.IngestionJob;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 

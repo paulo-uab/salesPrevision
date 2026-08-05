@@ -1,0 +1,44 @@
+@startuml template-erd
+entity "IngestionTemplate" as T {
+  * id : Long <<PK>>
+  --
+  name : String(150) <<unique>>
+  description : String(1000)
+  fileType : FileType
+  delimiter : String(10)
+  hasHeader : Boolean
+  sheetName : String(150)
+  rootPath : String(255)
+  version : Integer
+  active : Boolean
+  createdAt : LocalDateTime
+  updatedAt : LocalDateTime
+}
+
+entity "TemplateField" as F {
+  * id : Long <<PK>>
+  --
+  fieldName : String(120)
+  sourceName : String(120)
+  dataType : FieldDataType
+  required : Boolean
+  positionIndex : Integer
+  dateFormat : String(50)
+  defaultValue : String(255)
+  validationRegex : String(500)
+  targetPath : String(255)
+  active : Boolean
+}
+
+entity "TemplateValidationRule" as R {
+  * id : Long <<PK>>
+  --
+  ruleType : TemplateRuleType
+  ruleValue : String(500)
+  message : String(500)
+  active : Boolean
+}
+
+T ||--o{ F : "fields"
+F ||--o{ R : "validationRules"
+@enduml

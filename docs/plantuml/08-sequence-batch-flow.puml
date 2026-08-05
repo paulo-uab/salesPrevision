@@ -1,0 +1,48 @@
+@startuml batch-flow
+participant "BatchScheduler\n(a cada 60s)" as SCHED
+participant "BatchScheduleService" as BSS
+participant "JobLauncher\n(Spring Batch)" as JL
+participant "ForecastItemReader" as READER
+participant "IngestionClient" as IC
+participant "ForecastItemProcessor" as PROC
+participant "PipelineClient" as PC
+participant "ForecastItemWriter" as WRITER
+database "batchdb" as DB
+participant "External Prediction API" as EXT
+
+SCHED -> SCHED : checkSchedules() — avaliar cron expressions
+SCHED -> BSS : runJob(config) [se schedule activo e due]
+BSS -> DB : Salvar BatchExecution (status=RUNNING)
+BSS -> JL : run(forecastJob, {scheduleConfigId, batchExecutionId, startedAt})
+
+JL -> READER : @BeforeStep — carregar parâmetros do job
+READER -> DB : Carregar BatchScheduleConfig
+READER -> IC : GET /api/ingestion/jobs?templateId&status=COMPLETED
+IC --> READER : Lista de IngestionJobResponse
+loop Para cada job dentro da janela lookbackDays
+  READER -> IC : GET /api/ingestion/jobs/{id}/records (paginado, 200/página)
+  IC --> READER : Página de IngestedRecordResponse
+  READER -> READER : Desserializar normalizedPayload → Map<String,Object>
+end
+
+loop Para cada chunk de 100 registos
+  JL -> PROC : process(record)
+  note right: @BeforeStep — carregar PipelineDto uma vez
+  PROC -> PC : GET /api/pipelines/{id}/dto (uma vez por step)
+  PC --> PROC : PipelineDto
+  PROC -> PROC : FilterEngine.apply(filters, record)
+  alt Registo filtrado (excluído)
+    PROC --> JL : null (Spring Batch ignora)
+  else Registo aceite
+    PROC -> PROC : TransformationEngine.apply(fields, record)
+    PROC --> JL : Map<String,Object> transformado
+  end
+  JL -> WRITER : write(chunk)
+  WRITER -> EXT : POST {predictionApiUrl}\n{pipelineId, pipelineName, scheduleConfigId,\n batchExecutionId, recordCount, records:[...]}
+  EXT --> WRITER : Response
+  WRITER -> DB : Actualizar recordsSent / recordsFailed
+end
+
+JL -> BSS : Job concluído
+BSS -> DB : Actualizar BatchExecution (status=COMPLETED/FAILED, finishedAt)
+@enduml

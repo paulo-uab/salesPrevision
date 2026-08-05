@@ -1,0 +1,29 @@
+@startuml validation-flow
+participant "CsvIngestionProcessor" as CSV
+participant "AbstractIngestionProcessor" as ABS
+
+CSV -> ABS : convertAndValidateField(field, rawValue)
+
+ABS -> ABS : Verificar required (campo obrigatório e vazio?)
+
+loop Para cada TemplateValidationRule
+  alt NOT_NULL
+    ABS -> ABS : rawValue != null && !blank
+  else REGEX
+    ABS -> ABS : rawValue.matches(ruleValue)
+  else MIN
+    ABS -> ABS : BigDecimal(rawValue) >= BigDecimal(ruleValue)
+  else MAX
+    ABS -> ABS : BigDecimal(rawValue) <= BigDecimal(ruleValue)
+  else ENUM
+    ABS -> ABS : rawValue in ruleValue.split(",")
+  else DATE_FORMAT
+    ABS -> ABS : LocalDate.parse(rawValue, DateTimeFormatter.ofPattern(ruleValue))
+  end
+end
+
+ABS -> ABS : Conversão de tipo (dataType)
+note right: STRING → sem conversão\nINTEGER → Integer.parseInt()\nLONG → Long.parseLong()\nDECIMAL → new BigDecimal()\nBOOLEAN → Boolean.parseBoolean()\nDATE → LocalDate.parse()\nDATETIME → LocalDateTime.parse()
+
+ABS --> CSV : Valor normalizado ou IngestionError
+@enduml

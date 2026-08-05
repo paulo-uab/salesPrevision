@@ -22,10 +22,13 @@
     </properties>
 
     <modules>
+        <module>core</module>
         <module>template-service</module>
         <module>ingestion-service</module>
         <module>pipeline-service</module>
         <module>batch-service</module>
+        <module>gateway-service</module>
+        <module>user-service</module>
     </modules>
 
     <dependencyManagement>
@@ -33,6 +36,11 @@
             <dependency>
                 <groupId>org.springdoc</groupId>
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
                 <version>${springdoc.version}</version>
             </dependency>
         </dependencies>

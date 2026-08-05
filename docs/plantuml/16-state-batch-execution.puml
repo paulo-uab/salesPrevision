@@ -1,0 +1,9 @@
+@startuml batch-states
+[*] --> RUNNING : runJob() / triggerManually()
+RUNNING --> COMPLETED : Spring Batch job concluído com sucesso
+RUNNING --> FAILED : excepção no job Spring Batch
+RUNNING --> SKIPPED : execução duplicada detectada
+COMPLETED --> [*]
+FAILED --> [*]
+SKIPPED --> [*]
+@enduml

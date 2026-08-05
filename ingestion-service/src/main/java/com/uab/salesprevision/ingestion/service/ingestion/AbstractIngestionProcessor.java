@@ -2,9 +2,9 @@ package com.uab.salesprevision.ingestion.service.ingestion;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.uab.core.dto.ingestion.TemplateDto;
-import com.uab.salesprevision.ingestion.entity.IngestedRecord;
-import com.uab.salesprevision.ingestion.entity.IngestionJob;
+import com.uab.salesprevision.ingestion.client.dto.TemplateClientDto;
+import com.uab.salesprevision.ingestion.model.IngestedRecord;
+import com.uab.salesprevision.ingestion.model.IngestionJob;
 import com.uab.core.enums.FieldDataType;
 import com.uab.core.enums.IngestionStatus;
 import com.uab.core.enums.TemplateRuleType;
@@ -14,6 +14,9 @@ import com.uab.salesprevision.ingestion.repository.IngestedRecordRepository;
 import com.uab.salesprevision.ingestion.repository.IngestionErrorRepository;
 import com.uab.salesprevision.ingestion.repository.IngestionJobRepository;
 import com.uab.salesprevision.ingestion.service.IngestionRecordFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.MessageSource;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -30,6 +33,7 @@ import java.util.*;
 
 import static com.uab.core.enums.TemplateRuleType.*;
 
+@Slf4j
 public abstract class AbstractIngestionProcessor implements IngestionProcessor {
 
     protected final IngestionJobRepository ingestionJobRepository;
@@ -37,22 +41,32 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
     protected final IngestionErrorRepository ingestionErrorRepository;
     protected final IngestionRecordFactory ingestionRecordFactory;
     protected final ObjectMapper objectMapper;
+    protected final MessageSource messageSource;
 
     protected AbstractIngestionProcessor(IngestionJobRepository ingestionJobRepository,
                                          IngestedRecordRepository ingestedRecordRepository,
                                          IngestionErrorRepository ingestionErrorRepository,
                                          IngestionRecordFactory ingestionRecordFactory,
-                                         ObjectMapper objectMapper) {
+                                         ObjectMapper objectMapper,
+                                         MessageSource messageSource) {
         this.ingestionJobRepository = ingestionJobRepository;
         this.ingestedRecordRepository = ingestedRecordRepository;
         this.ingestionErrorRepository = ingestionErrorRepository;
         this.ingestionRecordFactory = ingestionRecordFactory;
         this.objectMapper = objectMapper;
+        this.messageSource = messageSource;
     }
 
+    /**
+     * REQUIRES_NEW + noRollbackFor ensures the FAILED/COMPLETED status is always committed
+     * to the database even when doProcess throws, preventing the status save from being
+     * rolled back along with the failed business transaction.
+     */
     @Override
-    @Transactional
-    public void process(IngestionJob job, TemplateDto template) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = Exception.class)
+    public void process(IngestionJob job, TemplateClientDto template) {
+        log.info("Starting processing: jobId={}, template='{}', type={}",
+                job.getId(), template.getName(), supports());
         resetJobProcessingState(job);
 
         job.setStatus(IngestionStatus.PROCESSING);
@@ -66,22 +80,26 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
             job.setFinishedAt(LocalDateTime.now());
             job.setErrorMessage(null);
             ingestionJobRepository.save(job);
+            log.info("Job completed: jobId={}, records={}, errors={}",
+                    job.getId(), job.getRecordCount(), job.getErrorCount());
         } catch (Exception ex) {
             job.setStatus(IngestionStatus.FAILED);
             job.setFinishedAt(LocalDateTime.now());
             job.setErrorMessage(ex.getMessage());
             ingestionJobRepository.save(job);
+            log.error("Job failed: jobId={}, reason={}", job.getId(), ex.getMessage(), ex);
             throw ex;
         }
     }
 
-    protected abstract void doProcess(IngestionJob job, TemplateDto template);
+    protected abstract void doProcess(IngestionJob job, TemplateClientDto template);
 
     protected String readFileContent(IngestionJob job) {
+        log.debug("Reading file: path={}", job.getStoragePath());
         try {
             return Files.readString(Path.of(job.getStoragePath()), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new BadRequestException("Não foi possível ler o ficheiro: " + e.getMessage());
+            throw new BadRequestException("error.ingestion.file.read.path", e.getMessage());
         }
     }
 
@@ -112,10 +130,10 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
         );
     }
 
-    protected Object convertAndValidateField(TemplateDto.FieldDto field, String rawValue) {
+    protected Object convertAndValidateField(TemplateClientDto.FieldDto field, String rawValue) {
         if (!StringUtils.hasText(rawValue)) {
             if (Boolean.TRUE.equals(field.getRequired()) || hasRule(field, NOT_NULL)) {
-                throw new FieldValidationException("VALIDATION", "Campo obrigatório");
+                throw new FieldValidationException("VALIDATION", msg("error.field.required"));
             }
             return null;
         }
@@ -123,7 +141,7 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
         String trimmed = rawValue.trim();
 
         if (StringUtils.hasText(field.getValidationRegex()) && !trimmed.matches(field.getValidationRegex())) {
-            throw new FieldValidationException("REGEX", "Valor não respeita o padrão configurado");
+            throw new FieldValidationException("REGEX", msg("error.field.regex"));
         }
 
         Object converted = convertValue(field, trimmed);
@@ -131,31 +149,35 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
         return converted;
     }
 
-    protected Object convertValue(TemplateDto.FieldDto field, String value) {
+    protected Object convertValue(TemplateClientDto.FieldDto field, String value) {
         FieldDataType dataType = field.getDataType();
 
         try {
             return switch (dataType) {
                 case STRING -> value;
                 case INTEGER -> Integer.valueOf(value);
+                case LONG -> Long.valueOf(value);
                 case DECIMAL -> new BigDecimal(value);
                 case BOOLEAN -> parseBoolean(value);
                 case DATE -> parseDate(field.getDateFormat(), value).toString();
+                case DATETIME -> parseDateTime(field.getDateFormat(), value).toString();
                 default -> null;
             };
         } catch (NumberFormatException ex) {
-            throw new FieldValidationException("TYPE_CONVERSION", "Não foi possível converter para " + dataType);
+            throw new FieldValidationException("TYPE_CONVERSION",
+                    msg("error.field.type.conversion", dataType.name()));
         } catch (DateTimeParseException ex) {
-            throw new FieldValidationException("TYPE_CONVERSION", "Não foi possível converter para DATE");
+            throw new FieldValidationException("TYPE_CONVERSION",
+                    msg("error.field.type.conversion", dataType.name()));
         }
     }
 
-    protected void applyRules(TemplateDto.FieldDto field, String rawValue, Object convertedValue) {
+    protected void applyRules(TemplateClientDto.FieldDto field, String rawValue, Object convertedValue) {
         if (field.getRules() == null) {
             return;
         }
 
-        for (TemplateDto.RuleDto rule : field.getRules()) {
+        for (TemplateClientDto.RuleDto rule : field.getRules()) {
             if (!Boolean.TRUE.equals(rule.getActive())) {
                 continue;
             }
@@ -163,32 +185,37 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
             switch (rule.getRuleType()) {
                 case NOT_NULL -> {
                     if (convertedValue == null) {
-                        throw new FieldValidationException("NOT_NULL", defaultMessage(rule.getMessage(), "Campo obrigatório"));
+                        throw new FieldValidationException("NOT_NULL",
+                                defaultMessage(rule.getMessage(), msg("error.field.required")));
                     }
                 }
                 case REGEX -> {
                     if (StringUtils.hasText(rule.getRuleValue()) && !rawValue.matches(rule.getRuleValue())) {
-                        throw new FieldValidationException("REGEX", defaultMessage(rule.getMessage(), "Valor inválido"));
+                        throw new FieldValidationException("REGEX",
+                                defaultMessage(rule.getMessage(), msg("error.field.regex.invalid")));
                     }
                 }
                 case MIN -> {
                     BigDecimal value = toBigDecimal(convertedValue);
                     BigDecimal min = new BigDecimal(rule.getRuleValue());
                     if (value.compareTo(min) < 0) {
-                        throw new FieldValidationException("MIN", defaultMessage(rule.getMessage(), "Valor abaixo do mínimo"));
+                        throw new FieldValidationException("MIN",
+                                defaultMessage(rule.getMessage(), msg("error.field.min")));
                     }
                 }
                 case MAX -> {
                     BigDecimal value = toBigDecimal(convertedValue);
                     BigDecimal max = new BigDecimal(rule.getRuleValue());
                     if (value.compareTo(max) > 0) {
-                        throw new FieldValidationException("MAX", defaultMessage(rule.getMessage(), "Valor acima do máximo"));
+                        throw new FieldValidationException("MAX",
+                                defaultMessage(rule.getMessage(), msg("error.field.max")));
                     }
                 }
                 case ENUM -> {
                     Set<String> accepted = splitEnumValues(rule.getRuleValue());
                     if (!accepted.contains(rawValue)) {
-                        throw new FieldValidationException("ENUM", defaultMessage(rule.getMessage(), "Valor fora do conjunto permitido"));
+                        throw new FieldValidationException("ENUM",
+                                defaultMessage(rule.getMessage(), msg("error.field.enum")));
                     }
                 }
                 case DATE_FORMAT -> parseDate(rule.getRuleValue(), rawValue);
@@ -216,7 +243,7 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
-            throw new BadRequestException("Erro ao serializar payload");
+            throw new BadRequestException("error.ingestion.payload.serialize");
         }
     }
 
@@ -224,13 +251,17 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
         return new LinkedHashMap<>();
     }
 
-    protected boolean hasRule(TemplateDto.FieldDto field, TemplateRuleType ruleType) {
+    protected boolean hasRule(TemplateClientDto.FieldDto field, TemplateRuleType ruleType) {
         return field.getRules() != null && field.getRules().stream()
                 .anyMatch(rule -> Boolean.TRUE.equals(rule.getActive()) && rule.getRuleType() == ruleType);
     }
 
     protected String defaultMessage(String customMessage, String fallback) {
         return StringUtils.hasText(customMessage) ? customMessage : fallback;
+    }
+
+    protected String msg(String key, Object... args) {
+        return messageSource.getMessage(key, args.length > 0 ? args : null, Locale.forLanguageTag("pt"));
     }
 
     protected LocalDate parseDate(String format, String value) {
@@ -240,9 +271,16 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
         return LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE);
     }
 
+    protected LocalDateTime parseDateTime(String format, String value) {
+        if (StringUtils.hasText(format)) {
+            return LocalDateTime.parse(value, DateTimeFormatter.ofPattern(format));
+        }
+        return LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+    }
+
     protected BigDecimal toBigDecimal(Object value) {
         if (value == null) {
-            throw new FieldValidationException("TYPE_CONVERSION", "Valor nulo");
+            throw new FieldValidationException("TYPE_CONVERSION", msg("error.field.value.null"));
         }
         if (value instanceof BigDecimal decimal) {
             return decimal;
@@ -256,7 +294,7 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
         if (value instanceof String stringValue) {
             return new BigDecimal(stringValue);
         }
-        throw new FieldValidationException("TYPE_CONVERSION", "Valor não numérico");
+        throw new FieldValidationException("TYPE_CONVERSION", msg("error.field.value.not.numeric"));
     }
 
     protected Boolean parseBoolean(String value) {
@@ -264,7 +302,8 @@ public abstract class AbstractIngestionProcessor implements IngestionProcessor {
         return switch (normalized) {
             case "true", "1", "yes", "y", "sim", "s" -> true;
             case "false", "0", "no", "n", "nao", "não" -> false;
-            default -> throw new FieldValidationException("TYPE_CONVERSION", "Valor booleano inválido");
+            default -> throw new FieldValidationException("TYPE_CONVERSION",
+                    msg("error.field.value.boolean.invalid"));
         };
     }
 

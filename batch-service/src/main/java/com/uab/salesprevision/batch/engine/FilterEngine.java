@@ -1,6 +1,6 @@
 package com.uab.salesprevision.batch.engine;
 
-import com.uab.core.dto.pipeline.PipelineDto;
+import com.uab.salesprevision.batch.client.dto.PipelineClientDto;
 import com.uab.core.enums.LogicalOperator;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -15,12 +15,12 @@ import java.util.stream.Collectors;
 @Component
 public class FilterEngine {
 
-    public boolean matches(Map<String, Object> record, List<PipelineDto.FilterDto> filters) {
+    public boolean matches(Map<String, Object> record, List<PipelineClientDto.FilterDto> filters) {
         if (filters == null || filters.isEmpty()) {
             return true;
         }
 
-        List<PipelineDto.FilterDto> sorted = filters.stream()
+        List<PipelineClientDto.FilterDto> sorted = filters.stream()
                 .sorted((a, b) -> {
                     int ia = a.getOrderIndex() == null ? Integer.MAX_VALUE : a.getOrderIndex();
                     int ib = b.getOrderIndex() == null ? Integer.MAX_VALUE : b.getOrderIndex();
@@ -31,8 +31,8 @@ public class FilterEngine {
         boolean result = evaluateFilter(record, sorted.get(0));
 
         for (int i = 1; i < sorted.size(); i++) {
-            PipelineDto.FilterDto filter = sorted.get(i);
-            PipelineDto.FilterDto previous = sorted.get(i - 1);
+            PipelineClientDto.FilterDto filter = sorted.get(i);
+            PipelineClientDto.FilterDto previous = sorted.get(i - 1);
             boolean current = evaluateFilter(record, filter);
 
             if (previous.getLogicalOperator() == LogicalOperator.OR) {
@@ -45,7 +45,7 @@ public class FilterEngine {
         return result;
     }
 
-    private boolean evaluateFilter(Map<String, Object> record, PipelineDto.FilterDto filter) {
+    private boolean evaluateFilter(Map<String, Object> record, PipelineClientDto.FilterDto filter) {
         Object fieldValue = record.get(filter.getFieldName());
         String rawValue = fieldValue == null ? null : String.valueOf(fieldValue);
 

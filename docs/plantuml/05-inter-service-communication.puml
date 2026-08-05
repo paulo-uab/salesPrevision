@@ -1,0 +1,14 @@
+@startuml inter-service
+component "template-service\n:8081" as TS
+component "ingestion-service\n:8082" as IS
+component "pipeline-service\n:8083" as PS
+component "batch-service\n:8084" as BS
+cloud "External\nPrediction API" as EXT
+
+IS --> TS : GET v1/api/templates/{id}
+PS --> TS : GET v1/api/templates/{id}
+BS --> PS : GET /api/pipelines/{id}/dto
+BS --> IS : GET /api/ingestion/jobs?templateId&status=COMPLETED
+BS --> IS : GET /api/ingestion/jobs/{id}/records
+BS --> EXT : POST {predictionApiUrl}
+@enduml
