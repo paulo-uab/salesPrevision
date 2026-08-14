@@ -74,3 +74,17 @@ def test_arima_intervals_ordered(monthly_series):
         lo <= pred <= hi
         for lo, pred, hi in zip(result.lower_bound, result.predictions, result.upper_bound)
     )
+
+
+def test_arima_supports_exog_flag():
+    assert ARIMAForecaster(order=(1, 1, 1)).supports_exog is True
+
+
+def test_arima_fit_with_exog(monthly_series):
+    exog = pd.DataFrame({"promo": [0, 1] * 24}, index=monthly_series.index)
+    forecaster = ARIMAForecaster(order=(1, 1, 0))
+    forecaster.fit_with_exog(monthly_series, exog)
+    future_exog = pd.DataFrame({"promo": [1, 1, 1]})
+    result = forecaster.predict_with_exog(horizon=3, future_exog=future_exog)
+    assert len(result.predictions) == 3
+    assert all(np.isfinite(v) for v in result.predictions)

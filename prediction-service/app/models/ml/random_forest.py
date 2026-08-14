@@ -14,10 +14,11 @@ class RandomForestForecaster(BaseMLForecaster):
         self,
         n_lags: int = 12,
         include_date_features: bool = True,
+        frequency: str = "ME",
         n_estimators: int = 100,
         max_depth: int | None = None,
     ) -> None:
-        super().__init__(n_lags, include_date_features)
+        super().__init__(n_lags, include_date_features, frequency)
         self._n_estimators = n_estimators
         self._max_depth = max_depth
 

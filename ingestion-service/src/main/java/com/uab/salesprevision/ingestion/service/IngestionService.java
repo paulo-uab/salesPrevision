@@ -79,7 +79,6 @@ public class IngestionService {
     @Transactional
     public CreateIngestionJobResponse createJob(MultipartFile file,
                                                 Long templateId,
-                                                String createdBy,
                                                 boolean autoProcess) {
 
         if (file == null || file.isEmpty()) {
@@ -87,6 +86,7 @@ public class IngestionService {
         }
 
         Long companyId = currentCompanyId();
+        String createdBy = currentUsername();
         log.info("Creating job: templateId={}, file='{}', createdBy='{}', autoProcess={}, companyId={}",
                 templateId, file.getOriginalFilename(), createdBy, autoProcess, companyId);
 
@@ -279,6 +279,11 @@ public class IngestionService {
             throw new BadRequestException("error.ingestion.company.missing");
         }
         return number.longValue();
+    }
+
+    private String currentUsername() {
+        Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return jwt.getSubject();
     }
 
     private FileType detectFileType(String fileName) {

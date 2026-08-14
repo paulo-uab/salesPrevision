@@ -53,6 +53,7 @@ public class BatchScheduleService {
                 .lookbackDays(request.getLookbackDays() != null ? request.getLookbackDays() : 7)
                 .predictionApiUrl(request.getPredictionApiUrl())
                 .active(request.getActive() != null ? request.getActive() : true)
+                .internalPrediction(request.getInternalPrediction() != null ? request.getInternalPrediction() : false)
                 .createdBy(request.getCreatedBy())
                 .build();
 
@@ -168,9 +169,11 @@ public class BatchScheduleService {
         r.setLookbackDays(config.getLookbackDays());
         r.setPredictionApiUrl(config.getPredictionApiUrl());
         r.setActive(config.getActive());
+        r.setInternalPrediction(config.getInternalPrediction());
         r.setCreatedBy(config.getCreatedBy());
         r.setCreatedAt(config.getCreatedAt());
         r.setUpdatedAt(config.getUpdatedAt());
+        r.setLastRunAt(config.getLastRunAt());
         return r;
     }
 

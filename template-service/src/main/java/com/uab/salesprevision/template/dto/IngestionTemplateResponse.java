@@ -3,6 +3,7 @@ package com.uab.salesprevision.template.dto;
 import com.uab.core.enums.FieldDataType;
 import com.uab.core.enums.FileType;
 import com.uab.core.enums.TemplateRuleType;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -14,6 +15,7 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "See POST /v1/api/templates for the meaning of each field.")
 public class IngestionTemplateResponse {
 
     private Long id;

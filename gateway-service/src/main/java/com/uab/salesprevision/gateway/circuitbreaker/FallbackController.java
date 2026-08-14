@@ -1,5 +1,7 @@
 package com.uab.salesprevision.gateway.circuitbreaker;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.cloud.gateway.support.ServerWebExchangeUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -14,9 +16,11 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/fallback")
+@Tag(name = "Fallback", description = "Circuit breaker fallback responses — never called directly, only reached when a proxied service is unavailable.")
 public class FallbackController {
 
     @RequestMapping("/service-unavailable")
+    @Operation(summary = "Circuit breaker fallback", description = "Returned by the gateway instead of proxying, when the target service's circuit breaker is open.")
     public Mono<ResponseEntity<Map<String, Object>>> serviceUnavailable(ServerWebExchange exchange) {
         Throwable cause = exchange.getAttribute(
                 ServerWebExchangeUtils.CIRCUITBREAKER_EXECUTION_EXCEPTION_ATTR);

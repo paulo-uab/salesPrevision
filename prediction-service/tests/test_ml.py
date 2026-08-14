@@ -45,6 +45,66 @@ def test_feature_builder_no_date_features(monthly_series):
     assert "quarter" not in X.columns
 
 
+def test_feature_builder_day_of_week_only_for_daily_frequency():
+    daily_index = pd.date_range("2024-01-01", periods=30, freq="D")
+    daily_series = pd.Series(range(30), index=daily_index, dtype=float)
+
+    fb_daily = TimeSeriesFeatureBuilder(n_lags=3, frequency="D")
+    X_daily, _ = fb_daily.fit_transform(daily_series)
+    assert "day_of_week" in X_daily.columns
+    assert "is_weekend" in X_daily.columns
+
+
+def test_feature_builder_no_day_of_week_for_monthly_frequency(monthly_series):
+    fb = TimeSeriesFeatureBuilder(n_lags=3, frequency="ME")
+    X, _ = fb.fit_transform(monthly_series)
+    assert "day_of_week" not in X.columns
+    assert "is_weekend" not in X.columns
+
+
+def test_feature_builder_exog_column_present(monthly_series):
+    exog = pd.DataFrame({"promo": [0, 1] * 24}, index=monthly_series.index)
+    fb = TimeSeriesFeatureBuilder(n_lags=3)
+    X, _ = fb.fit_transform(monthly_series, exog=exog)
+    assert "promo" in X.columns
+
+
+def test_feature_builder_no_exog_column_when_not_provided(monthly_series):
+    fb = TimeSeriesFeatureBuilder(n_lags=3)
+    X, _ = fb.fit_transform(monthly_series)
+    assert "promo" not in X.columns
+
+
+def test_feature_builder_prediction_features_exog_values(monthly_series):
+    exog = pd.DataFrame({"promo": [0, 1] * 24}, index=monthly_series.index)
+    fb = TimeSeriesFeatureBuilder(n_lags=3)
+    X_train, _ = fb.fit_transform(monthly_series, exog=exog)
+    X_pred = fb.prediction_features(
+        context=list(monthly_series.values),
+        step=0,
+        last_date=monthly_series.index[-1],
+        freq=monthly_series.index.freq,
+        exog_values={"promo": 1.0},
+    )
+    assert list(X_pred.columns) == list(X_train.columns)
+    assert X_pred["promo"].iloc[0] == 1.0
+
+
+def test_prediction_features_matches_training_columns_daily():
+    daily_index = pd.date_range("2024-01-01", periods=30, freq="D")
+    daily_series = pd.Series(range(30), index=daily_index, dtype=float)
+
+    fb = TimeSeriesFeatureBuilder(n_lags=6, frequency="D")
+    X_train, _ = fb.fit_transform(daily_series)
+    X_pred = fb.prediction_features(
+        context=list(daily_series.values),
+        step=0,
+        last_date=daily_series.index[-1],
+        freq=daily_series.index.freq,
+    )
+    assert list(X_pred.columns) == list(X_train.columns)
+
+
 def test_prediction_features_matches_training_columns(monthly_series):
     fb = TimeSeriesFeatureBuilder(n_lags=6)
     X_train, _ = fb.fit_transform(monthly_series)
@@ -78,6 +138,19 @@ def test_linear_regression_no_intervals(monthly_series):
     result = LinearRegressionForecaster(n_lags=6).fit_predict(monthly_series, horizon=3)
     assert result.lower_bound is None
     assert result.upper_bound is None
+
+
+def test_linear_regression_supports_exog_flag():
+    assert LinearRegressionForecaster(n_lags=6).supports_exog is True
+
+
+def test_linear_regression_fit_with_exog(monthly_series):
+    exog = pd.DataFrame({"promo": [0, 1] * 24}, index=monthly_series.index)
+    forecaster = LinearRegressionForecaster(n_lags=6)
+    forecaster.fit_with_exog(monthly_series, exog)
+    result = forecaster.predict_with_exog(horizon=3)
+    assert len(result.predictions) == 3
+    assert all(np.isfinite(v) for v in result.predictions)
 
 
 # ---------- random forest ----------
@@ -135,22 +208,22 @@ def test_large_n_lags_still_works(monthly_series):
 # ---------- integração via API ----------
 
 def test_api_linear_regression(client):
-    client.post("/api/config/pipelines", json={
-        "pipeline_id": 60,
-        "date_field": "data",
-        "target_fields": [{"field_name": "vendas"}],
-        "model": "linear_regression",
-        "forecast_horizon": 3,
-        "frequency": "ME",
-        "n_lags": 6,
-        "include_date_features": True,
-    })
     dates = pd.date_range("2019-01-01", periods=48, freq="ME")
     records = [{"data": d.strftime("%Y-%m-%d"), "vendas": str((i + 1) * 100)} for i, d in enumerate(dates)]
     r = client.post("/api/forecast", json={
         "pipelineId": 60, "pipelineName": "test_lr",
         "scheduleConfigId": 1, "batchExecutionId": 10,
         "recordCount": len(records), "records": records,
+        "config": {
+            "date_field": "data",
+            "target_fields": [{"field_name": "vendas"}],
+            "model": "linear_regression",
+            "control_model": "linear_regression",
+            "forecast_horizon": 3,
+            "frequency": "ME",
+            "n_lags": 6,
+            "include_date_features": True,
+        },
     })
     assert r.status_code == 200
     body = r.json()
@@ -159,21 +232,21 @@ def test_api_linear_regression(client):
 
 
 def test_api_xgboost(client):
-    client.post("/api/config/pipelines", json={
-        "pipeline_id": 70,
-        "date_field": "data",
-        "target_fields": [{"field_name": "vendas"}],
-        "model": "xgboost",
-        "forecast_horizon": 3,
-        "frequency": "ME",
-        "n_lags": 6,
-    })
     dates = pd.date_range("2019-01-01", periods=48, freq="ME")
     records = [{"data": d.strftime("%Y-%m-%d"), "vendas": str((i + 1) * 100)} for i, d in enumerate(dates)]
     r = client.post("/api/forecast", json={
         "pipelineId": 70, "pipelineName": "test_xgb",
         "scheduleConfigId": 1, "batchExecutionId": 11,
         "recordCount": len(records), "records": records,
+        "config": {
+            "date_field": "data",
+            "target_fields": [{"field_name": "vendas"}],
+            "model": "xgboost",
+            "control_model": "xgboost",
+            "forecast_horizon": 3,
+            "frequency": "ME",
+            "n_lags": 6,
+        },
     })
     assert r.status_code == 200
     assert r.json()["model_used"] == "xgboost"

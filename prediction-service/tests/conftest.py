@@ -1,38 +1,21 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.config.database import Base, get_db
+from app.config.settings import settings
 from app.main import app
+from app.security.auth import verify_token
 
-_TEST_DB_URL = "sqlite:///:memory:"
+_FAKE_CLAIMS = {"sub": "test-user", "roles": [], "companyId": 1}
 
 
 @pytest.fixture
-def client():
-    """Fixture que cria uma BD SQLite em memória isolada por teste.
-
-    Equivalente ao padrão @DataJpaTest do Spring — garante estado limpo entre testes.
-    """
-    engine = create_engine(
-        _TEST_DB_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(bind=engine)
-    TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-    def _override_get_db():
-        db = TestingSession()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = _override_get_db
+def client(tmp_path, monkeypatch):
+    """Cliente de teste com autenticação simulada — o prediction-service não
+    tem base de dados (a configuração de previsão vem inline em cada pedido).
+    Isola a cache de modelos incrementais numa pasta temporária, para nunca
+    escrever ficheiros reais no repositório durante os testes."""
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path / "model_cache"))
+    app.dependency_overrides[verify_token] = lambda: _FAKE_CLAIMS
     with TestClient(app) as c:
         yield c
-    Base.metadata.drop_all(bind=engine)
     app.dependency_overrides.clear()

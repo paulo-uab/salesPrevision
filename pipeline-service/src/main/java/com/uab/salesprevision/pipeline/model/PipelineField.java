@@ -1,5 +1,6 @@
 package com.uab.salesprevision.pipeline.model;
 
+import com.uab.core.enums.ForecastFieldRole;
 import com.uab.core.enums.TransformationType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -38,4 +39,17 @@ public class PipelineField {
 
     @Column(nullable = false)
     private Boolean active = true;
+
+    // Marca o papel deste campo (já transformado, targetFieldName) na previsão —
+    // é a partir daqui que o batch-service deriva date_field/target_fields/group_field
+    // sem duplicar nomes de campo numa segunda configuração.
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ForecastFieldRole forecastRole = ForecastFieldRole.NONE;
+
+    // Só relevante quando forecastRole=TARGET (sum/mean/last/max/min) — valores
+    // têm de corresponder ao AggregationType do prediction-service (Python).
+    @Column(length = 20)
+    private String aggregation;
 }

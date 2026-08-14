@@ -22,17 +22,28 @@ def build_series_map(
     target_fields: list[TargetFieldConfig],
     group_field: Optional[str],
     frequency: str,
-) -> tuple[SeriesMap, list[str]]:
+    exog_fields: Optional[list[TargetFieldConfig]] = None,
+) -> tuple[SeriesMap, SeriesMap, list[str]]:
     """Converte os registos recebidos do batch-service em séries temporais prontas a modelar.
 
-    Produz uma série por combinação (campo_alvo, grupo). Quando group_field é None,
-    o grupo é None e toda a informação fica numa única série por campo.
+    Produz uma série por combinação (campo, grupo) — tanto para os campos alvo
+    (a prever) como para os exógenos (entrada extra, nunca previstos), usando
+    exatamente a mesma agregação/resampling para ambos, para que fiquem
+    alinhados na mesma grelha temporal.
+
+    Devolve (target_series_map, exog_series_map, warnings). exog_series_map
+    fica vazio quando exog_fields não é passado — mantém-se o comportamento
+    anterior para quem não usa variáveis exógenas.
     """
     if not records:
         raise ValueError("Lista de registos está vazia.")
 
+    exog_fields = exog_fields or []
+    exog_names = {f.field_name for f in exog_fields}
+    all_fields = list(target_fields) + list(exog_fields)
+
     warnings: list[str] = []
-    agg_per_field = {tf.field_name: tf.aggregation for tf in target_fields}
+    agg_per_field = {f.field_name: f.aggregation for f in all_fields}
     raw: dict[tuple[str, Optional[str]], list[tuple[pd.Timestamp, float]]] = defaultdict(list)
     date_invalid = 0
     value_invalid = 0
@@ -53,14 +64,14 @@ def build_series_map(
             gv = record.get(group_field)
             group_val = str(gv) if gv is not None else None
 
-        for tf in target_fields:
-            rv = record.get(tf.field_name)
+        for f in all_fields:
+            rv = record.get(f.field_name)
             if rv is None:
                 value_invalid += 1
                 continue
             try:
                 value = float(str(rv).replace(",", "."))
-                raw[(tf.field_name, group_val)].append((date, value))
+                raw[(f.field_name, group_val)].append((date, value))
             except (ValueError, TypeError):
                 value_invalid += 1
 
@@ -75,11 +86,13 @@ def build_series_map(
             "Verifique se date_field e target_fields correspondem aos campos enviados pelo pipeline."
         )
 
-    result: SeriesMap = {}
+    target_result: SeriesMap = {}
+    exog_result: SeriesMap = {}
 
     for (field_name, group_val), points in raw.items():
+        label = f"'{field_name}'" + (f", grupo '{group_val}'" if group_val else "")
+
         if len(points) < 2:
-            label = f"'{field_name}'" + (f", grupo '{group_val}'" if group_val else "")
             warnings.append(f"Campo {label} tem menos de 2 pontos válidos — ignorado.")
             continue
 
@@ -89,19 +102,21 @@ def build_series_map(
         s = s.ffill().fillna(0)
 
         if len(s) < 2:
-            label = f"'{field_name}'" + (f", grupo '{group_val}'" if group_val else "")
             warnings.append(f"Campo {label} tem menos de 2 períodos após agregação — ignorado.")
             continue
 
-        result[(field_name, group_val)] = s
+        if field_name in exog_names:
+            exog_result[(field_name, group_val)] = s
+        else:
+            target_result[(field_name, group_val)] = s
 
-    if not result:
+    if not target_result:
         raise ValueError(
             "Nenhuma série temporal válida pôde ser construída. "
             "Verifique a configuração de frequência e os dados enviados."
         )
 
-    return result, warnings
+    return target_result, exog_result, warnings
 
 
 def default_season_period(frequency: str) -> int:

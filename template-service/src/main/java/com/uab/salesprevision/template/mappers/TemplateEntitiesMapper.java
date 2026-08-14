@@ -22,6 +22,7 @@ public interface TemplateEntitiesMapper {
     IngestionTemplate createRequestToIngestionTemplate(CreateIngestionTemplateRequest request);
 
     @Mapping(target = "fieldName", expression = "java(fieldRequest.getFieldName().trim())")
+    @Mapping(target = "required", expression = "java(Boolean.TRUE.equals(fieldRequest.getRequired()))")
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "template", ignore = true)
     TemplateField fieldRequestToTemplateField(CreateIngestionTemplateRequest.FieldRequest fieldRequest);

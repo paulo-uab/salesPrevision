@@ -1,5 +1,6 @@
 package com.uab.salesprevision.pipeline.service;
 
+import com.uab.core.enums.ForecastFieldRole;
 import com.uab.salesprevision.pipeline.client.dto.TemplateClientDto;
 import com.uab.salesprevision.pipeline.dto.PipelineDto;
 import com.uab.core.exception.BadRequestException;
@@ -53,6 +54,7 @@ public class PipelineService {
         List<PipelineField> fields = nullSafe(request.getFields()).stream()
                 .map(mapper::toFieldEntity)
                 .toList();
+        validateForecastRoles(fields);
         fields.forEach(f -> f.setPipeline(pipeline));
         pipeline.getFields().addAll(fields);
 
@@ -102,6 +104,25 @@ public class PipelineService {
 
     private <T> List<T> nullSafe(List<T> list) {
         return list != null ? list : Collections.emptyList();
+    }
+
+    // Um pipeline tem de conseguir alimentar o prediction-service sem ambiguidade:
+    // batch-service deriva date_field/target_fields diretamente destes papéis, por
+    // isso a falta deles só se descobriria numa execução batch, não na criação.
+    private void validateForecastRoles(List<PipelineField> fields) {
+        long dateFields = fields.stream()
+                .filter(f -> Boolean.TRUE.equals(f.getActive()) && f.getForecastRole() == ForecastFieldRole.DATE)
+                .count();
+        long targetFields = fields.stream()
+                .filter(f -> Boolean.TRUE.equals(f.getActive()) && f.getForecastRole() == ForecastFieldRole.TARGET)
+                .count();
+
+        if (dateFields != 1) {
+            throw new BadRequestException("error.pipeline.forecast.date.field.required");
+        }
+        if (targetFields < 1) {
+            throw new BadRequestException("error.pipeline.forecast.target.field.required");
+        }
     }
 
     private Long currentCompanyId() {

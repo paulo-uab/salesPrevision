@@ -1,6 +1,7 @@
 package com.uab.salesprevision.pipeline.dto;
 
 import com.uab.core.enums.FilterOperator;
+import com.uab.core.enums.ForecastFieldRole;
 import com.uab.core.enums.LogicalOperator;
 import com.uab.core.enums.TransformationType;
 import lombok.AllArgsConstructor;
@@ -22,6 +23,15 @@ public class PipelineDto {
     private String templateName;
     private String name;
     private Boolean active;
+    private String forecastModel;
+    private String controlModel;
+    private String frequency;
+    private Integer forecastHorizon;
+    private Integer seasonPeriod;
+    private String arimaOrder;
+    private Integer nLags;
+    private Boolean includeDateFeatures;
+    private Boolean incrementalTraining;
     private List<FieldDto> fields = new ArrayList<>();
     private List<FilterDto> filters = new ArrayList<>();
 
@@ -37,6 +47,8 @@ public class PipelineDto {
         private String transformationConfig;
         private Integer positionIndex;
         private Boolean active;
+        private ForecastFieldRole forecastRole;
+        private String aggregation;
     }
 
     @Getter

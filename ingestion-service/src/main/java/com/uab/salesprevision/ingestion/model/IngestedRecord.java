@@ -4,11 +4,13 @@ import com.uab.core.enums.ValidationStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "ingested_records")
+@EntityListeners(AuditingEntityListener.class)
 @Getter
 @Setter
 @Builder

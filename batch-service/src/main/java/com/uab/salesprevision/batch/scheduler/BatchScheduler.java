@@ -12,8 +12,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 @RequiredArgsConstructor
@@ -26,8 +24,6 @@ public class BatchScheduler {
     @Value("${scheduling.enabled:true}")
     private boolean schedulingEnabled;
 
-    private final Map<Long, LocalDateTime> lastRunTimes = new ConcurrentHashMap<>();
-
     @Scheduled(fixedDelay = 60_000)
     public void checkSchedules() {
         if (!schedulingEnabled) return;
@@ -39,7 +35,8 @@ public class BatchScheduler {
             try {
                 if (isDue(config, now)) {
                     log.info("Triggering schedule id={}, cron='{}'", config.getId(), config.getCronExpression());
-                    lastRunTimes.put(config.getId(), now);
+                    config.setLastRunAt(now);
+                    scheduleConfigRepository.save(config);
                     batchScheduleService.runJob(config);
                 }
             } catch (Exception e) {
@@ -51,8 +48,7 @@ public class BatchScheduler {
     private boolean isDue(BatchScheduleConfig config, LocalDateTime now) {
         try {
             CronExpression cron = CronExpression.parse(config.getCronExpression());
-            LocalDateTime lastRun = lastRunTimes.getOrDefault(config.getId(),
-                    now.minusMinutes(2));
+            LocalDateTime lastRun = config.getLastRunAt() != null ? config.getLastRunAt() : now.minusMinutes(2);
             LocalDateTime nextAfterLastRun = cron.next(lastRun);
             return nextAfterLastRun != null && !nextAfterLastRun.isAfter(now);
         } catch (Exception e) {

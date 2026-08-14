@@ -12,6 +12,20 @@ def _monthly_records(n: int = 24, extra_field: str = None) -> list[dict]:
     return records
 
 
+def _request(pipeline_id: int, records: list[dict], config: dict, **overrides) -> dict:
+    payload = {
+        "pipelineId": pipeline_id,
+        "pipelineName": f"test_{pipeline_id}",
+        "scheduleConfigId": 1,
+        "batchExecutionId": pipeline_id,
+        "recordCount": len(records),
+        "records": records,
+        "config": config,
+    }
+    payload.update(overrides)
+    return payload
+
+
 # ---------- infra ----------
 
 def test_health(client: TestClient):
@@ -24,110 +38,67 @@ def test_list_models(client: TestClient):
     r = client.get("/api/models")
     assert r.status_code == 200
     names = {m["name"] for m in r.json()}
-    assert names == {"naive", "mean", "drift", "seasonal_naive", "ses", "holtwinters", "arima"}
+    assert names == {
+        "naive", "mean", "drift", "seasonal_naive", "ses", "holtwinters", "arima",
+        "linear_regression", "random_forest", "xgboost",
+    }
 
 
-# ---------- CRUD configurações ----------
+# ---------- validação do pedido ----------
 
-def test_create_and_get_config(client: TestClient):
-    r = client.post("/api/config/pipelines", json={
-        "pipeline_id": 1,
-        "date_field": "data",
+def test_forecast_missing_config_returns_422(client: TestClient):
+    payload = {
+        "pipelineId": 1, "pipelineName": "x",
+        "scheduleConfigId": 1, "batchExecutionId": 1,
+        "recordCount": 1, "records": [{"data": "2023-01-01", "vendas": "100"}],
+        # "config" em falta de propósito
+    }
+    assert client.post("/api/forecast", json=payload).status_code == 422
+
+
+def test_forecast_missing_date_field_returns_422(client: TestClient):
+    payload = _request(2, _monthly_records(24), config={
         "target_fields": [{"field_name": "vendas"}],
-        "model": "naive",
-        "frequency": "ME",
+        # "date_field" em falta de propósito
     })
-    assert r.status_code == 201
-    assert r.json()["model"] == "naive"
-    assert r.json()["target_fields"][0]["field_name"] == "vendas"
-
-
-def test_update_config_is_idempotent(client: TestClient):
-    payload = {"pipeline_id": 2, "date_field": "data", "target_fields": [{"field_name": "v"}], "model": "naive"}
-    client.post("/api/config/pipelines", json=payload)
-    payload["model"] = "mean"
-    r = client.post("/api/config/pipelines", json=payload)
-    assert r.status_code == 201
-    assert client.get("/api/config/pipelines/2").json()["model"] == "mean"
-
-
-def test_get_config_not_found(client: TestClient):
-    assert client.get("/api/config/pipelines/999").status_code == 404
-
-
-def test_list_configs(client: TestClient):
-    for i in range(3):
-        client.post("/api/config/pipelines", json={
-            "pipeline_id": i + 10,
-            "date_field": "data",
-            "target_fields": [{"field_name": "vendas"}],
-        })
-    assert len(client.get("/api/config/pipelines").json()) == 3
-
-
-def test_delete_config(client: TestClient):
-    client.post("/api/config/pipelines", json={
-        "pipeline_id": 5, "date_field": "data", "target_fields": [{"field_name": "v"}],
-    })
-    assert client.delete("/api/config/pipelines/5").status_code == 204
-    assert client.get("/api/config/pipelines/5").status_code == 404
-
-
-def test_delete_not_found(client: TestClient):
-    assert client.delete("/api/config/pipelines/999").status_code == 404
+    assert client.post("/api/forecast", json=payload).status_code == 422
 
 
 # ---------- previsão — caso base ----------
 
-def test_forecast_no_config_returns_404(client: TestClient):
-    payload = {
-        "pipelineId": 999, "pipelineName": "x",
-        "scheduleConfigId": 1, "batchExecutionId": 1,
-        "recordCount": 1, "records": [{"data": "2023-01-01", "vendas": "100"}],
-    }
-    assert client.post("/api/forecast", json=payload).status_code == 404
-
-
 def test_forecast_naive_single_field(client: TestClient):
-    client.post("/api/config/pipelines", json={
-        "pipeline_id": 10,
+    r = client.post("/api/forecast", json=_request(10, _monthly_records(24), config={
         "date_field": "data",
         "target_fields": [{"field_name": "vendas"}],
         "model": "naive",
+        "control_model": "naive",
         "forecast_horizon": 3,
         "frequency": "ME",
-    })
-    r = client.post("/api/forecast", json={
-        "pipelineId": 10, "pipelineName": "test_naive",
-        "scheduleConfigId": 1, "batchExecutionId": 1,
-        "recordCount": 24, "records": _monthly_records(24),
-    })
+    }))
     assert r.status_code == 200
     body = r.json()
     assert body["model_used"] == "naive"
+    assert body["control_model_used"] == "naive"
     assert body["n_training_series"] == 1
+    # model == control_model → não duplica as previsões
     assert len(body["predictions"]) == 3
     assert all(p["value"] == 2400.0 for p in body["predictions"])
     assert all(p["target_field"] == "vendas" for p in body["predictions"])
     assert all(p["group"] is None for p in body["predictions"])
+    assert all(p["model"] == "naive" for p in body["predictions"])
 
 
 # ---------- múltiplos campos alvo ----------
 
 def test_forecast_multiple_target_fields(client: TestClient):
-    client.post("/api/config/pipelines", json={
-        "pipeline_id": 20,
+    r = client.post("/api/forecast", json=_request(20, _monthly_records(24, extra_field="quantidade"), config={
         "date_field": "data",
         "target_fields": [{"field_name": "vendas"}, {"field_name": "quantidade"}],
         "model": "naive",
+        "control_model": "naive",
         "forecast_horizon": 2,
         "frequency": "ME",
-    })
-    r = client.post("/api/forecast", json={
-        "pipelineId": 20, "pipelineName": "test_multi",
-        "scheduleConfigId": 1, "batchExecutionId": 2,
-        "recordCount": 24, "records": _monthly_records(24, extra_field="quantidade"),
-    })
+    }))
     assert r.status_code == 200
     body = r.json()
     assert len(body["predictions"]) == 4          # 2 campos × 2 horizonte
@@ -138,26 +109,21 @@ def test_forecast_multiple_target_fields(client: TestClient):
 # ---------- agrupamento ----------
 
 def test_forecast_with_group_field(client: TestClient):
-    client.post("/api/config/pipelines", json={
-        "pipeline_id": 30,
-        "date_field": "data",
-        "target_fields": [{"field_name": "vendas"}],
-        "group_field": "produto",
-        "model": "naive",
-        "forecast_horizon": 2,
-        "frequency": "ME",
-    })
     dates = pd.date_range("2022-01-01", periods=12, freq="ME")
     records = []
     for i, d in enumerate(dates):
         records.append({"data": d.strftime("%Y-%m-%d"), "vendas": str((i + 1) * 100), "produto": "A"})
         records.append({"data": d.strftime("%Y-%m-%d"), "vendas": str((i + 1) * 50),  "produto": "B"})
 
-    r = client.post("/api/forecast", json={
-        "pipelineId": 30, "pipelineName": "test_group",
-        "scheduleConfigId": 1, "batchExecutionId": 3,
-        "recordCount": len(records), "records": records,
-    })
+    r = client.post("/api/forecast", json=_request(30, records, config={
+        "date_field": "data",
+        "target_fields": [{"field_name": "vendas"}],
+        "group_field": "produto",
+        "model": "naive",
+        "control_model": "naive",
+        "forecast_horizon": 2,
+        "frequency": "ME",
+    }))
     assert r.status_code == 200
     body = r.json()
     assert len(body["predictions"]) == 4          # 1 campo × 2 grupos × 2 horizonte
@@ -168,41 +134,143 @@ def test_forecast_with_group_field(client: TestClient):
 # ---------- modelos estatísticos ----------
 
 def test_forecast_holtwinters(client: TestClient):
-    client.post("/api/config/pipelines", json={
-        "pipeline_id": 40,
+    r = client.post("/api/forecast", json=_request(40, _monthly_records(36), config={
         "date_field": "data",
         "target_fields": [{"field_name": "vendas"}],
         "model": "holtwinters",
+        "control_model": "holtwinters",
         "forecast_horizon": 6,
         "frequency": "ME",
         "season_period": 12,
-    })
-    r = client.post("/api/forecast", json={
-        "pipelineId": 40, "pipelineName": "test_hw",
-        "scheduleConfigId": 1, "batchExecutionId": 4,
-        "recordCount": 36, "records": _monthly_records(36),
-    })
+    }))
     assert r.status_code == 200
     assert r.json()["model_used"] == "holtwinters"
     assert len(r.json()["predictions"]) == 6
 
 
 def test_forecast_arima_has_intervals(client: TestClient):
-    client.post("/api/config/pipelines", json={
-        "pipeline_id": 50,
+    r = client.post("/api/forecast", json=_request(50, _monthly_records(36), config={
         "date_field": "data",
         "target_fields": [{"field_name": "vendas"}],
         "model": "arima",
+        "control_model": "arima",
         "forecast_horizon": 4,
         "frequency": "ME",
         "arima_order": [1, 1, 1],
-    })
-    r = client.post("/api/forecast", json={
-        "pipelineId": 50, "pipelineName": "test_arima",
-        "scheduleConfigId": 1, "batchExecutionId": 5,
-        "recordCount": 36, "records": _monthly_records(36),
-    })
+    }))
     assert r.status_code == 200
     preds = r.json()["predictions"]
     assert all(p["lower_bound"] is not None for p in preds)
     assert all(p["upper_bound"] is not None for p in preds)
+
+
+# ---------- modelo de controlo ----------
+
+def test_control_model_runs_alongside_main_model(client: TestClient):
+    r = client.post("/api/forecast", json=_request(60, _monthly_records(36), config={
+        "date_field": "data",
+        "target_fields": [{"field_name": "vendas"}],
+        "model": "holtwinters",
+        "control_model": "naive",
+        "forecast_horizon": 4,
+        "frequency": "ME",
+        "season_period": 12,
+    }))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["model_used"] == "holtwinters"
+    assert body["control_model_used"] == "naive"
+    # dois modelos diferentes → 2x os pontos (4 holtwinters + 4 naive)
+    assert len(body["predictions"]) == 8
+    models_seen = {p["model"] for p in body["predictions"]}
+    assert models_seen == {"holtwinters", "naive"}
+    holtwinters_points = [p for p in body["predictions"] if p["model"] == "holtwinters"]
+    naive_points = [p for p in body["predictions"] if p["model"] == "naive"]
+    assert len(holtwinters_points) == 4
+    assert len(naive_points) == 4
+    # naive não produz intervalos de confiança, holtwinters também não (não é ARIMA)
+    assert all(p["lower_bound"] is None for p in naive_points)
+
+
+def test_control_model_defaults_to_naive(client: TestClient):
+    r = client.post("/api/forecast", json=_request(61, _monthly_records(24), config={
+        "date_field": "data",
+        "target_fields": [{"field_name": "vendas"}],
+        "model": "mean",
+        # control_model omitido — deve assumir "naive" por omissão
+        "forecast_horizon": 3,
+        "frequency": "ME",
+    }))
+    assert r.status_code == 200
+    assert r.json()["control_model_used"] == "naive"
+
+
+# ---------- variáveis exógenas ----------
+
+def _records_with_promo(n: int = 36) -> list[dict]:
+    dates = pd.date_range("2019-01-01", periods=n, freq="ME")
+    return [
+        {"data": d.strftime("%Y-%m-%d"), "vendas": str((i + 1) * 100), "promo": str(i % 2)}
+        for i, d in enumerate(dates)
+    ]
+
+
+def test_forecast_with_exog_field_arima(client: TestClient):
+    r = client.post("/api/forecast", json=_request(70, _records_with_promo(36), config={
+        "date_field": "data",
+        "target_fields": [{"field_name": "vendas"}],
+        "exog_fields": [{"field_name": "promo", "aggregation": "max"}],
+        "model": "arima",
+        "control_model": "arima",
+        "forecast_horizon": 3,
+        "frequency": "ME",
+        "arima_order": [1, 1, 0],
+    }))
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["predictions"]) == 3
+    assert all(p["value"] is not None for p in body["predictions"])
+
+
+def test_forecast_with_exog_field_random_forest(client: TestClient):
+    r = client.post("/api/forecast", json=_request(71, _records_with_promo(36), config={
+        "date_field": "data",
+        "target_fields": [{"field_name": "vendas"}],
+        "exog_fields": [{"field_name": "promo", "aggregation": "max"}],
+        "model": "random_forest",
+        "control_model": "random_forest",
+        "forecast_horizon": 3,
+        "frequency": "ME",
+        "n_lags": 6,
+    }))
+    assert r.status_code == 200
+    assert len(r.json()["predictions"]) == 3
+
+
+def test_forecast_without_exog_fields_still_works(client: TestClient):
+    # exog_fields omitido — comportamento anterior inalterado (default [])
+    r = client.post("/api/forecast", json=_request(72, _monthly_records(24), config={
+        "date_field": "data",
+        "target_fields": [{"field_name": "vendas"}],
+        "model": "naive",
+        "control_model": "naive",
+        "forecast_horizon": 3,
+        "frequency": "ME",
+    }))
+    assert r.status_code == 200
+    assert len(r.json()["predictions"]) == 3
+
+
+def test_exog_ignored_for_model_without_support(client: TestClient):
+    # naive não suporta exog — a config é aceite, o campo é simplesmente ignorado
+    r = client.post("/api/forecast", json=_request(73, _records_with_promo(24), config={
+        "date_field": "data",
+        "target_fields": [{"field_name": "vendas"}],
+        "exog_fields": [{"field_name": "promo", "aggregation": "max"}],
+        "model": "naive",
+        "control_model": "naive",
+        "forecast_horizon": 3,
+        "frequency": "ME",
+    }))
+    assert r.status_code == 200
+    assert len(r.json()["predictions"]) == 3
