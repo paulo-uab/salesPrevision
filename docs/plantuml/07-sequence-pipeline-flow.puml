@@ -3,20 +3,28 @@ actor Client
 participant "PipelineController" as PC
 participant "PipelineService" as PS
 participant "TemplateClient" as TC
+participant "gateway-service" as GW
+participant "template-service" as TS
 database "pipelinedb" as DB
 
-Client -> PC : POST /api/pipelines\n(CreateForecastPipelineRequest)
+Client -> PC : POST /v1/api/pipelines\n(CreateForecastPipelineRequest)\nAuthorization: Bearer <JWT>
 PC -> PS : create(request)
-PS -> PS : Verificar unicidade do nome
-PS -> TC : GET v1/api/templates/{templateId}
-TC --> PS : TemplateDto (para desnormalizar templateName)
-PS -> DB : Salvar ForecastPipeline\n+ PipelineFields\n+ PipelineFilters
+PS -> PS : companyId = JWT claim "companyId"\n(currentCompanyId())
+PS -> PS : Verificar unicidade do nome\n(existsByNameAndCompanyId)
+PS -> TC : getTemplate(templateId)
+TC -> GW : GET v1/api/templates/{templateId}\n(Authorization header relayed, services.auth.relay=true)
+GW -> TS : forward
+TS --> GW : TemplateClientDto
+GW --> TC : TemplateClientDto
+TC --> PS : TemplateClientDto (para desnormalizar templateName)
+PS -> PS : validateForecastRoles(fields)\nexactly 1 active DATE field,\n>= 1 active TARGET field
+PS -> DB : Salvar ForecastPipeline (companyId, forecast config)\n+ PipelineFields (forecastRole, aggregation)\n+ PipelineFilters
 PS --> PC : ForecastPipelineResponse
 PC --> Client : 201 Created
 
-Client -> PC : GET /api/pipelines/{id}/dto
+Client -> PC : GET /v1/api/pipelines/{id}/dto
 PC -> PS : getDto(id)
-PS -> DB : Carregar ForecastPipeline
+PS -> DB : findByIdAndCompanyId(id, companyId)
 PS --> PC : PipelineDto
-PC --> Client : 200 OK (consumido pelo batch-service)
+PC --> Client : 200 OK (consumido pelo batch-service,\ndirectamente, sem passar pelo gateway)
 @enduml

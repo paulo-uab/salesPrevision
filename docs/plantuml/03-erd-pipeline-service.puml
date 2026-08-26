@@ -2,14 +2,36 @@
 entity "ForecastPipeline" as P {
   * id : Long <<PK>>
   --
+  companyId : Long <<FK ext>> <<unique w/ name>>
   templateId : Long <<FK ext>>
   templateName : String(150)
-  name : String(150) <<unique>>
+  name : String(150) <<unique w/ companyId>>
   description : String(1000)
   active : Boolean
+  --
+  ' Forecast/prediction-service config — see note
+  forecastModel : String(30)
+  controlModel : String(30)
+  frequency : String(10)
+  forecastHorizon : Integer
+  seasonPeriod : Integer
+  arimaOrder : String(20)
+  nLags : Integer
+  includeDateFeatures : Boolean
+  incrementalTraining : Boolean
+  --
   createdAt : LocalDateTime
   updatedAt : LocalDateTime
 }
+
+note right of P
+  forecastModel drives the "real" prediction; controlModel runs in
+  parallel over the same data as a naive baseline for comparison.
+  Values must match ModelType (Literal) in prediction-service — validated
+  there, not here. incrementalTraining only has effect for arima/xgboost;
+  arimaOrder is a "p,q,d"-style CSV parsed by batch-service into a
+  List<Integer> for the Python side.
+end note
 
 entity "PipelineField" as PF {
   * id : Long <<PK>>
@@ -20,7 +42,19 @@ entity "PipelineField" as PF {
   transformationConfig : TEXT
   positionIndex : Integer
   active : Boolean
+  forecastRole : ForecastFieldRole
+  aggregation : String(20)
 }
+
+note right of PF
+  forecastRole (NONE/DATE/TARGET/GROUP/EXOG) is how batch-service derives
+  date_field / target_fields / group_field / exog_fields for the prediction
+  API, keyed off targetFieldName — no separate forecast config needed.
+  aggregation only applies when forecastRole=TARGET or EXOG (sum/mean/last/
+  max/min), and must match prediction-service's AggregationType.
+  PipelineService.validateForecastRoles() enforces exactly one active DATE
+  field and at least one active TARGET field at creation time.
+end note
 
 entity "PipelineFilter" as PFI {
   * id : Long <<PK>>

@@ -1,48 +1,56 @@
 @startuml batch-flow
 participant "BatchScheduler\n(a cada 60s)" as SCHED
 participant "BatchScheduleService" as BSS
-participant "JobLauncher\n(Spring Batch)" as JL
-participant "ForecastItemReader" as READER
-participant "IngestionClient" as IC
-participant "ForecastItemProcessor" as PROC
+participant "JobLauncher\n(JobOperator, Spring Batch)" as JL
+participant "ForecastItemReader\n<<@StepScope>>" as READER
 participant "PipelineClient" as PC
-participant "ForecastItemWriter" as WRITER
+participant "IngestionClient" as IC
+participant "ForecastItemProcessor\n<<@StepScope>>" as PROC
+participant "ForecastItemWriter\n<<@StepScope>>" as WRITER
 database "batchdb" as DB
-participant "External Prediction API" as EXT
+participant "prediction-service /\nExternal Prediction API" as EXT
 
-SCHED -> SCHED : checkSchedules() — avaliar cron expressions
-SCHED -> BSS : runJob(config) [se schedule activo e due]
+SCHED -> DB : findByActiveTrue()
+SCHED -> SCHED : isDue(config, now)\nCronExpression.next(config.lastRunAt)
+SCHED -> DB : config.lastRunAt = now\n(persisted BEFORE the run, so a restart\ncan't replay a schedule that already fired)
+SCHED -> BSS : runJob(config)
 BSS -> DB : Salvar BatchExecution (status=RUNNING)
-BSS -> JL : run(forecastJob, {scheduleConfigId, batchExecutionId, startedAt})
+BSS -> JL : jobOperator.start(forecastJob,\n{scheduleConfigId, batchExecutionId, startedAt})
 
-JL -> READER : @BeforeStep — carregar parâmetros do job
-READER -> DB : Carregar BatchScheduleConfig
-READER -> IC : GET /api/ingestion/jobs?templateId&status=COMPLETED
-IC --> READER : Lista de IngestionJobResponse
-loop Para cada job dentro da janela lookbackDays
-  READER -> IC : GET /api/ingestion/jobs/{id}/records (paginado, 200/página)
-  IC --> READER : Página de IngestedRecordResponse
-  READER -> READER : Desserializar normalizedPayload → Map<String,Object>
+JL -> READER : @BeforeStep — carregar scheduleConfigId dos JobParameters
+READER -> DB : findById(scheduleConfigId) -> BatchScheduleConfig
+READER -> PC : getPipeline(config.pipelineId, config.companyId)
+note right: Resolve o pipeline PRIMEIRO para obter o templateId —\ncorrecção de um bug em que se passava o id do próprio\npipeline em vez do templateId ao IngestionClient.
+PC --> READER : PipelineClientDto (com templateId)
+READER -> IC : getCompletedJobs(templateId, config.companyId)
+note right: @Retry + @CircuitBreaker(name="ingestion-service")\nX-Company-Id header + bearer service token
+IC --> READER : Lista de IngestionJobDto
+loop Para cada job dentro da janela lookbackDays (cutoff = now - lookbackDays)
+  READER -> IC : getRecordsPage(jobId, page, size=200, config.companyId)
+  IC --> READER : Página (content, last)
+  READER -> READER : Desserializar normalizedPayload -> Map<String,Object>\n(buffer em memória, Queue<Map>)
 end
 
 loop Para cada chunk de 100 registos
   JL -> PROC : process(record)
-  note right: @BeforeStep — carregar PipelineDto uma vez
-  PROC -> PC : GET /api/pipelines/{id}/dto (uma vez por step)
-  PC --> PROC : PipelineDto
-  PROC -> PROC : FilterEngine.apply(filters, record)
+  note right: @BeforeStep — findById(scheduleConfigId) -> config\npipelineClient.getPipeline(config.pipelineId, config.companyId) uma vez
+  PROC -> PC : getPipeline(config.pipelineId, config.companyId)
+  PC --> PROC : PipelineClientDto
+  PROC -> PROC : FilterEngine.matches(record, pipeline.filters)
   alt Registo filtrado (excluído)
     PROC --> JL : null (Spring Batch ignora)
   else Registo aceite
-    PROC -> PROC : TransformationEngine.apply(fields, record)
+    PROC -> PROC : TransformationEngine.apply(record, pipeline.fields)
     PROC --> JL : Map<String,Object> transformado
   end
   JL -> WRITER : write(chunk)
-  WRITER -> EXT : POST {predictionApiUrl}\n{pipelineId, pipelineName, scheduleConfigId,\n batchExecutionId, recordCount, records:[...]}
+  note right: @BeforeStep — findById(scheduleConfigId) -> config\npipelineClient.getPipeline(...) para obter o PipelineClientDto
+  WRITER -> WRITER : buildForecastConfig()\nderiva date_field / target_fields / exog_fields / group_field\ndos forecastRole de cada PipelineField (DATE/TARGET/EXOG/GROUP)
+  WRITER -> EXT : POST {predictionApiUrl}\n{pipelineId, pipelineName, scheduleConfigId, batchExecutionId,\n recordCount, records:[...], config:{...}}\n(bearer service token só se internalPrediction=true)
   EXT --> WRITER : Response
   WRITER -> DB : Actualizar recordsSent / recordsFailed
 end
 
-JL -> BSS : Job concluído
-BSS -> DB : Actualizar BatchExecution (status=COMPLETED/FAILED, finishedAt)
+JL -> BSS : JobExecution concluída
+BSS -> DB : Actualizar BatchExecution\n(status=COMPLETED/FAILED, finishedAt, springBatchJobExecutionId)
 @enduml

@@ -1,7 +1,17 @@
 @startuml ingestion-erd
+note as N1
+  Ingestion is asynchronous: createJob() persists the job (status=RECEIVED)
+  then publishes an IngestionJobEvent to the Kafka topic "ingestion.jobs".
+  IngestionEventConsumer (@KafkaListener, groupId=ingestion-processor) picks
+  it up and calls IngestionService.processJob() out of band from the HTTP
+  request. @RetryableTopic retries 3x before routing to "ingestion.jobs.dlt",
+  whose @DltHandler marks the job FAILED.
+end note
+
 entity "IngestionJob" as J {
   * id : Long <<PK>>
   --
+  companyId : Long <<FK ext>>
   templateId : Long <<FK ext>>
   templateName : String(150)
   status : IngestionStatus

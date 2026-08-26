@@ -1,9 +1,17 @@
 @startuml batch-states
-[*] --> RUNNING : runJob() / triggerManually()
-RUNNING --> COMPLETED : Spring Batch job concluído com sucesso
-RUNNING --> FAILED : excepção no job Spring Batch
-RUNNING --> SKIPPED : execução duplicada detectada
+' BatchExecutionStatus (core) values confirmed unchanged: RUNNING, COMPLETED,
+' FAILED, SKIPPED.
+[*] --> RUNNING : runJob() [scheduler, quando isDue()]\n/ triggerManually() [POST /api/batch/schedules/{id}/trigger]
+RUNNING --> COMPLETED : jobOperator.start(forecastJob, ...) concluído\nsem excepção (springBatchJobExecutionId gravado)
+RUNNING --> FAILED : excepção lançada por jobOperator.start(...)\n(errorMessage gravado)
+note right of RUNNING
+  SKIPPED is defined in BatchExecutionStatus but is not currently produced
+  anywhere in BatchScheduleService — a BatchExecution is only ever created
+  in the RUNNING state. A manual trigger while one is already RUNNING is
+  rejected up front with a 400 BadRequestException
+  ("error.batch.already.running") before any BatchExecution row is
+  created, rather than recording a SKIPPED execution.
+end note
 COMPLETED --> [*]
 FAILED --> [*]
-SKIPPED --> [*]
 @enduml

@@ -51,9 +51,46 @@ package "batch-service" {
   ForecastItemProcessor --> TransformationEngine
 }
 
+package "gateway-service" {
+  class GatewayApplication
+  class SecurityConfig
+  class CorrelationIdGatewayFilter
+  class LoggingFilter
+  class FallbackController
+  note bottom of GatewayApplication
+    Spring Cloud Gateway (WebFlux). No JPA entities/DB of its own — pure
+    routing + JWT validation (JWKS from user-service) + per-route
+    Resilience4j CircuitBreaker with FallbackController's
+    /fallback/service-unavailable.
+  end note
+}
+
+package "user-service" {
+  class User
+  class Company
+  class UserService
+  class CompanyService
+  class UserController
+  class CompanyController
+  class AuthController
+  class JwtTokenService
+  class JwksController
+  User "0..*" }o--"1" Company
+  UserController --> UserService
+  CompanyController --> CompanyService
+  AuthController --> JwtTokenService
+}
+
 package "core" {
   class GlobalExceptionHandler
   class BadRequestException
   class ResourceNotFoundException
+  class ServiceTokenProvider
+  class ServiceAuthRestClientInterceptor
+  note bottom of ServiceTokenProvider
+    Shared by ingestion-service/pipeline-service (token relay through
+    gateway-service) and batch-service (machine-account login against
+    gateway-service's /auth/login) for outbound service-to-service calls.
+  end note
 }
 @enduml

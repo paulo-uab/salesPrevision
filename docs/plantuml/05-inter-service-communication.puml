@@ -1,14 +1,51 @@
 @startuml inter-service
+component "gateway-service\n:8080\n(Spring Cloud Gateway)" as GW
+component "user-service\n:8086" as US
 component "template-service\n:8081" as TS
 component "ingestion-service\n:8082" as IS
 component "pipeline-service\n:8083" as PS
 component "batch-service\n:8084" as BS
+component "prediction-service\n:8085" as PRED
 cloud "External\nPrediction API" as EXT
 
-IS --> TS : GET v1/api/templates/{id}
-PS --> TS : GET v1/api/templates/{id}
-BS --> PS : GET /api/pipelines/{id}/dto
-BS --> IS : GET /api/ingestion/jobs?templateId&status=COMPLETED
-BS --> IS : GET /api/ingestion/jobs/{id}/records
-BS --> EXT : POST {predictionApiUrl}
+note right of GW
+  Single entry point for browser/API clients. Routes every downstream
+  service (template, ingestion, pipeline, batch, prediction, user) and
+  validates JWTs (Resilience4j CircuitBreaker filter per route,
+  fallback: forward:/fallback/service-unavailable). Holds no key
+  material itself.
+end note
+
+note right of US
+  Issues JWTs (POST /auth/login, RS256) and publishes its public key at
+  GET /.well-known/jwks.json (JWKS, RFC 7517) — the only public endpoints
+  besides health/docs. Every resource server (gateway-service,
+  template-service, ingestion-service, pipeline-service, batch-service)
+  validates tokens against this JWKS, so no shared secret is needed.
+  JWT claims: sub=username, roles=[ServiceRole,...], companyId=Long.
+end note
+
+GW --> US : JWT validation via\nspring.security.oauth2.resourceserver.jwt.jwk-set-uri\n(GET /.well-known/jwks.json, cached)
+GW ..> TS : routes /v1/api/templates/**
+GW ..> IS : routes /v1/api/ingestion/**
+GW ..> PS : routes /v1/api/pipelines/**
+GW ..> BS : routes /api/batch/**
+GW ..> PRED : routes /api/forecast/**, /api/config/**, /api/models/**
+GW ..> US : routes /auth/login, /api/users/**, /api/companies/**
+
+IS --> GW : GET v1/api/templates/{id}\n(services.template.url=http://gateway-service:8080 in docker profile;\ncaller's own Authorization header relayed, not a service token —\nservices.auth.relay=true)
+GW ..> TS : forwarded
+
+PS --> GW : GET v1/api/templates/{id}\n(same gateway-routed + token-relay pattern as ingestion-service)
+GW ..> TS : forwarded
+
+BS --> GW : POST /auth/login\n(machine account, ServiceTokenProvider — caches JWT until near expiry)
+GW ..> US : forwarded
+
+BS --> PS : GET /api/pipelines/{id}/dto\n@Retry(name="pipeline-service") + @CircuitBreaker(name="pipeline-service",\nfallbackMethod=...) — direct call, bypasses gateway, bearer service token\n+ X-Company-Id header
+BS --> IS : GET /api/ingestion/jobs?templateId&status=COMPLETED\nGET /api/ingestion/jobs/{id}/records\n@Retry(name="ingestion-service") + @CircuitBreaker(name="ingestion-service",\nfallbackMethod=...) — direct call, bypasses gateway, bearer service token\n+ X-Company-Id header
+BS --> PRED : POST {predictionApiUrl}\n(bearer service token attached only if\nBatchScheduleConfig.internalPrediction=true)
+BS --> EXT : POST {predictionApiUrl}\n(arbitrary user-configured URL — no token attached)
+
+IS ..> IS : IngestionEventProducer -> Kafka topic "ingestion.jobs"\n-> IngestionEventConsumer (async processing, same service)
 @enduml

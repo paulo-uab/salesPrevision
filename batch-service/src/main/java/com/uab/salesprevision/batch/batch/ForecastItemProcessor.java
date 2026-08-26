@@ -10,14 +10,14 @@ import com.uab.core.exception.ResourceNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.annotation.BeforeStep;
 import org.springframework.batch.core.step.StepExecution;
+import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.infrastructure.item.ItemProcessor;
-import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 
 @Component
-@Scope("step")
+@StepScope
 @Slf4j
 public class ForecastItemProcessor implements ItemProcessor<Map<String, Object>, Map<String, Object>> {
 

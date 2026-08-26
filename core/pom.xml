@@ -75,6 +75,12 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <!-- core is a shared library, not a runnable service (see the stub
+                         CoreApplication note) — repackaging it as an executable fat jar
+                         nests its classes under BOOT-INF/classes/, which breaks every
+                         other module's dependency resolution the moment core is
+                         resolved from the local repo instead of the reactor build. -->
+                    <skip>true</skip>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

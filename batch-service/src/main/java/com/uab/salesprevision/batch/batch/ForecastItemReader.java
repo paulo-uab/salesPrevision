@@ -3,26 +3,28 @@ package com.uab.salesprevision.batch.batch;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.uab.salesprevision.batch.client.dto.IngestionJobDto;
 import com.uab.salesprevision.batch.client.IngestionClient;
+import com.uab.salesprevision.batch.client.PipelineClient;
 import com.uab.salesprevision.batch.model.BatchScheduleConfig;
 import com.uab.salesprevision.batch.repository.BatchScheduleConfigRepository;
 import com.uab.core.exception.ResourceNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.annotation.BeforeStep;
 import org.springframework.batch.core.step.StepExecution;
+import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.infrastructure.item.ItemReader;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.*;
 
 @Component
-@Scope("step")
+@StepScope
 @Slf4j
 public class ForecastItemReader implements ItemReader<Map<String, Object>> {
 
     private final IngestionClient ingestionClient;
+    private final PipelineClient pipelineClient;
     private final BatchScheduleConfigRepository scheduleConfigRepository;
     private final ObjectMapper objectMapper;
 
@@ -32,9 +34,11 @@ public class ForecastItemReader implements ItemReader<Map<String, Object>> {
     private Queue<Map<String, Object>> buffer;
 
     public ForecastItemReader(IngestionClient ingestionClient,
+                              PipelineClient pipelineClient,
                               BatchScheduleConfigRepository scheduleConfigRepository,
                               ObjectMapper objectMapper) {
         this.ingestionClient = ingestionClient;
+        this.pipelineClient = pipelineClient;
         this.scheduleConfigRepository = scheduleConfigRepository;
         this.objectMapper = objectMapper;
     }
@@ -61,7 +65,8 @@ public class ForecastItemReader implements ItemReader<Map<String, Object>> {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(config.getLookbackDays());
         log.debug("Loading records: scheduleId={}, lookbackDays={}, cutoff={}", scheduleConfigId, config.getLookbackDays(), cutoff);
 
-        List<IngestionJobDto> jobs = ingestionClient.getCompletedJobs(config.getPipelineId(), config.getCompanyId());
+        Long templateId = pipelineClient.getPipeline(config.getPipelineId(), config.getCompanyId()).getTemplateId();
+        List<IngestionJobDto> jobs = ingestionClient.getCompletedJobs(templateId, config.getCompanyId());
 
         Queue<Map<String, Object>> result = new LinkedList<>();
 

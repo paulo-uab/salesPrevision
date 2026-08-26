@@ -1,48 +1,114 @@
 @startuml batch-architecture
 package "batch-service" {
+  class BatchScheduler {
+    -scheduleConfigRepository : BatchScheduleConfigRepository
+    -batchScheduleService : BatchScheduleService
+    -schedulingEnabled : boolean
+    +checkSchedules() : void
+    -isDue(BatchScheduleConfig, LocalDateTime) : boolean
+  }
+  note bottom of BatchScheduler
+    No longer keeps an in-memory Map<Long,LocalDateTime> lastRunTimes.
+    Reads BatchScheduleConfig.lastRunAt via the repository to decide
+    isDue(), and writes it back (config.lastRunAt = now) right before
+    triggering — so a restart can't replay a schedule that already fired.
+  end note
+
+  class BatchScheduleService {
+    -scheduleConfigRepository : BatchScheduleConfigRepository
+    -executionRepository : BatchExecutionRepository
+    -pipelineClient : PipelineClient
+    -jobOperator : JobOperator
+    -forecastJob : Job
+    +create(CreateBatchScheduleRequest) : BatchScheduleResponse
+    +triggerManually(Long) : BatchExecutionResponse
+    +runJob(BatchScheduleConfig) : BatchExecutionResponse
+  }
+
   class ForecastJobConfig {
     +forecastJob(JobRepository, Step) : Job
     +forecastStep(JobRepository, TransactionManager,\n  ForecastItemReader, ForecastItemProcessor,\n  ForecastItemWriter) : Step
     -- chunkSize: 100 --
   }
 
-  class ForecastItemReader {
-    -jobParameters : JobParameters
-    -scheduleConfigRepository
+  class ForecastItemReader << @StepScope >> {
+    -scheduleConfigId : Long
     -ingestionClient : IngestionClient
-    -recordQueue : Queue<Map>
-    +read() : Map<String,Object>
-    -loadRecords() : void
-  }
-
-  class ForecastItemProcessor {
     -pipelineClient : PipelineClient
-    -pipelineDto : PipelineDto
+    -scheduleConfigRepository : BatchScheduleConfigRepository
+    -objectMapper : ObjectMapper
+    -buffer : Queue<Map<String,Object>>
+    +read() : Map<String,Object>
+    -loadRecords() : Queue<Map<String,Object>>
+    -loadJobRecords(Long, Long, Queue) : void
+  }
+  note bottom of ForecastItemReader
+    loadRecords() resolves templateId via
+    pipelineClient.getPipeline(config.pipelineId, config.companyId)
+    BEFORE calling ingestionClient.getCompletedJobs(templateId, companyId)
+    — fixes a bug where the pipeline's own id was passed as templateId.
+  end note
+
+  class ForecastItemProcessor << @StepScope >> {
+    -pipelineClient : PipelineClient
+    -scheduleConfigRepository : BatchScheduleConfigRepository
     -filterEngine : FilterEngine
     -transformationEngine : TransformationEngine
+    -pipeline : PipelineClientDto
     +beforeStep(StepExecution) : void
     +process(Map) : Map<String,Object>
   }
 
-  class ForecastItemWriter {
-    -jobParameters : JobParameters
-    -batchExecutionRepository
+  class ForecastItemWriter << @StepScope >> {
     -restClient : RestClient
+    -objectMapper : ObjectMapper
+    -scheduleConfigRepository : BatchScheduleConfigRepository
+    -executionRepository : BatchExecutionRepository
+    -pipelineClient : PipelineClient
+    -serviceTokenProvider : ServiceTokenProvider
+    -scheduleConfig : BatchScheduleConfig
+    -pipeline : PipelineClientDto
+    +beforeStep(StepExecution) : void
     +write(Chunk<Map>) : void
+    -buildForecastConfig() : Map<String,Object>
+    -parseArimaOrder(String) : List<Integer>
   }
+  note bottom of ForecastItemWriter
+    buildForecastConfig() derives date_field / target_fields / exog_fields /
+    group_field from each PipelineField's forecastRole (DATE/TARGET/EXOG/
+    GROUP), not just target_fields as before — plus model, control_model,
+    frequency, arima_order, n_lags, etc. from ForecastPipeline. A bearer
+    service token is only attached when scheduleConfig.internalPrediction
+    is true.
+  end note
 
   class FilterEngine {
-    +apply(List<PipelineFilterDto>, Map) : boolean
+    +matches(Map, List<PipelineFilterDto>) : boolean
   }
 
   class TransformationEngine {
-    +apply(List<PipelineFieldDto>, Map) : Map<String,Object>
+    +apply(Map, List<PipelineFieldDto>) : Map<String,Object>
   }
 
+  class PipelineClient {
+    +getPipeline(Long pipelineId, Long companyId) : PipelineClientDto
+  }
+
+  class IngestionClient {
+    +getCompletedJobs(Long templateId, Long companyId) : List<IngestionJobDto>
+    +getRecordsPage(Long jobId, int page, int size, Long companyId) : Map
+  }
+
+  BatchScheduler --> BatchScheduleService
+  BatchScheduleService --> PipelineClient
   ForecastJobConfig --> ForecastItemReader
   ForecastJobConfig --> ForecastItemProcessor
   ForecastJobConfig --> ForecastItemWriter
+  ForecastItemReader --> PipelineClient
+  ForecastItemReader --> IngestionClient
+  ForecastItemProcessor --> PipelineClient
   ForecastItemProcessor --> FilterEngine
   ForecastItemProcessor --> TransformationEngine
+  ForecastItemWriter --> PipelineClient
 }
 @enduml

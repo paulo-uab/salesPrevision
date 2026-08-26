@@ -1,20 +1,31 @@
 @startuml processor-strategy
 interface IngestionProcessor {
-  +process(IngestionJob, TemplateDto) : void
-  +supports(FileType) : boolean
+  +supports() : FileType
+  +process(IngestionJob, TemplateClientDto) : void
 }
 
 abstract class AbstractIngestionProcessor {
-  #doProcess(IngestionJob, TemplateDto) : void
-  #convertAndValidateField(TemplateFieldDto, String) : Object
-  #saveRecord(...)
-  #saveError(...)
+  #{abstract} doProcess(IngestionJob, TemplateClientDto) : void
+  +process(IngestionJob, TemplateClientDto) : void
+  #convertAndValidateField(TemplateClientDto.FieldDto, String) : Object
+  #convertValue(TemplateClientDto.FieldDto, String) : Object
+  #applyRules(TemplateClientDto.FieldDto, String, Object) : void
+  #saveRecord(...) : IngestedRecord
+  #saveError(...) : void
 }
+note bottom of AbstractIngestionProcessor
+  process() runs @Transactional(propagation=REQUIRES_NEW,
+  noRollbackFor=Exception.class) so the FAILED/COMPLETED status always
+  commits even when doProcess() throws.
+end note
 
 class CsvIngestionProcessor {
-  +doProcess(IngestionJob, TemplateDto) : void
-  -parseDelimiter(String) : String
-  -mapHeaders(String[], TemplateDto) : Map<String, Integer>
+  +supports() : FileType
+  #doProcess(IngestionJob, TemplateClientDto) : void
+  -resolveDelimiter(String) : String
+  -prepareContext(TemplateClientDto, List<String>, String) : CsvContext
+  -resolveRawValue(FieldDto, List<String>, Map<String,Integer>) : String
+  -parseCsvLine(String, String) : List<String>
 }
 
 class IngestionProcessorFactory {

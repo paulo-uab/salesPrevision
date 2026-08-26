@@ -1,0 +1,9 @@
+**/target
+.git
+.idea
+*.iml
+uploads
+prediction-service/model_cache
+prediction-service/.venv
+prediction-service/__pycache__
+**/__pycache__

@@ -1,6 +1,21 @@
 @startuml components
 skinparam componentStyle rectangle
 
+component [gateway-service\n:8080] as GW {
+  [SecurityConfig]
+  [CorrelationIdGatewayFilter]
+  [LoggingFilter]
+  [FallbackController]
+}
+
+component [user-service\n:8086] as US {
+  [AuthController]
+  [UserController]
+  [CompanyController]
+  [JwtTokenService]
+  [JwksController]
+}
+
 component [template-service\n:8081] as TS {
   [IngestionTemplateController]
   [IngestionTemplateService]
@@ -9,6 +24,8 @@ component [template-service\n:8081] as TS {
 component [ingestion-service\n:8082] as IS {
   [IngestionController]
   [IngestionService]
+  [IngestionEventProducer]
+  [IngestionEventConsumer]
   [IngestionProcessorFactory]
   [CsvIngestionProcessor]
 }
@@ -27,20 +44,39 @@ component [batch-service\n:8084] as BS {
   [TransformationEngine]
 }
 
+component [prediction-service\n:8085\n(Python/FastAPI)] as PRED
+
+queue "Kafka\ntopic: ingestion.jobs\n(+ .dlt)" as KAFKA
+
+database "userdb\n(H2)" as UDB
 database "templatedb\n(H2)" as TDB
 database "ingestiondb\n(H2)" as IDB
 database "pipelinedb\n(H2)" as PDB
 database "batchdb\n(H2)" as BDB
 cloud "External\nPrediction API" as EXT
 
+US --> UDB
 TS --> TDB
 IS --> IDB
 PS --> PDB
 BS --> BDB
 
-IS ..> TS : REST
-PS ..> TS : REST
-BS ..> IS : REST
-BS ..> PS : REST
-BS ..> EXT : REST POST
+GW ..> TS : REST (JWT)
+GW ..> IS : REST (JWT)
+GW ..> PS : REST (JWT)
+GW ..> BS : REST (JWT)
+GW ..> PRED : REST (JWT)
+GW ..> US : REST (/auth/login public,\n/api/users, /api/companies JWT)
+GW ..> US : GET /.well-known/jwks.json\n(JWT validation, cached)
+
+IS ..> GW : REST (token relay) -> TS
+PS ..> GW : REST (token relay) -> TS
+IS --> KAFKA : produce IngestionJobEvent
+KAFKA --> IS : consume (async processing)
+
+BS ..> GW : POST /auth/login (service account)
+BS ..> IS : REST direct\n(Resilience4j Retry + CircuitBreaker)
+BS ..> PS : REST direct\n(Resilience4j Retry + CircuitBreaker)
+BS ..> PRED : REST POST (internal, bearer token)
+BS ..> EXT : REST POST (external, user-configured URL)
 @enduml

@@ -2,16 +2,31 @@
 entity "BatchScheduleConfig" as SC {
   * id : Long <<PK>>
   --
+  companyId : Long <<FK ext>>
   pipelineId : Long <<FK ext>>
   pipelineName : String(150)
   cronExpression : String(150)
   lookbackDays : Integer
   predictionApiUrl : String(500)
   active : Boolean
+  internalPrediction : Boolean
   createdBy : String(100)
   createdAt : LocalDateTime
   updatedAt : LocalDateTime
+  lastRunAt : LocalDateTime
 }
+
+note right of SC
+  internalPrediction: only true when predictionApiUrl points at our own
+  prediction-service — ForecastItemWriter then attaches a bearer service
+  token to the outbound POST. Opt-in only: predictionApiUrl is otherwise an
+  arbitrary user-configured URL and the token must never leak to a
+  third party by default.
+  lastRunAt: written by BatchScheduler right before each trigger, so the
+  cron poller's "last run" survives a restart instead of resetting to an
+  empty in-memory map (which used to let a schedule re-fire right after
+  every deploy).
+end note
 
 entity "BatchExecution" as BE {
   * id : Long <<PK>>

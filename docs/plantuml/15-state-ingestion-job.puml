@@ -1,8 +1,11 @@
 @startuml ingestion-states
-[*] --> RECEIVED : createJob()
-RECEIVED --> PROCESSING : processJob() iniciado
-PROCESSING --> COMPLETED : processamento concluído sem erros críticos
-PROCESSING --> FAILED : excepção não tratada
+' IngestionStatus (core) values confirmed unchanged: RECEIVED, PROCESSING,
+' FAILED, COMPLETED — no new states.
+[*] --> RECEIVED : createJob()\n(se autoProcess=true, publica IngestionJobEvent\nno tópico Kafka "ingestion.jobs")
+RECEIVED --> PROCESSING : IngestionEventConsumer consome o evento\n-> IngestionService.processJob() -> AbstractIngestionProcessor.process()
+PROCESSING --> COMPLETED : doProcess() concluído sem excepção
+PROCESSING --> FAILED : excepção em doProcess()\n(estado gravado com REQUIRES_NEW,\nnunca é revertido pela transacção falhada)
+RECEIVED --> FAILED : @RetryableTopic esgota as 3 tentativas\n-> mensagem em "ingestion.jobs.dlt"\n-> @DltHandler.markJobFailed()
 COMPLETED --> [*]
 FAILED --> [*]
 @enduml

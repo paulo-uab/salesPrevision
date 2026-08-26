@@ -2,7 +2,8 @@
 entity "IngestionTemplate" as T {
   * id : Long <<PK>>
   --
-  name : String(150) <<unique>>
+  companyId : Long <<FK ext>> <<unique w/ name>>
+  name : String(150) <<unique w/ companyId>>
   description : String(1000)
   fileType : FileType
   delimiter : String(10)

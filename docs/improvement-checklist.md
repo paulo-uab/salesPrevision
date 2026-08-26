@@ -3,19 +3,20 @@
 ## Fase 1 — Produção-Ready (Crítico)
 
 ### Infraestrutura e Deploy
-- [ ] Substituir URLs hardcoded (`localhost:8081`, etc.) por variáveis de ambiente
-- [ ] Adicionar API Gateway (Spring Cloud Gateway) como ponto de entrada único
-- [ ] Implementar service discovery (Eureka ou DNS nativo de Kubernetes)
+- [x] Substituir URLs hardcoded (`localhost:8081`, etc.) por variáveis de ambiente — perfil `docker` (`application-docker.properties`) por serviço, ativado via `SPRING_PROFILES_ACTIVE`
+- [x] Adicionar API Gateway (Spring Cloud Gateway) como ponto de entrada único — `gateway-service` (:8080), 13 rotas, validação JWT via JWKS, circuit breaker por rota
+- [ ] Implementar service discovery (Eureka ou DNS nativo de Kubernetes) — adiado deliberadamente por agora
 - [ ] Substituir `ddl-auto=update` por Flyway ou Liquibase para migrations controladas
-- [ ] Migrar storage de ficheiros do sistema de ficheiros local para storage externo (MinIO / S3 / Azure Blob)
+- [ ] Migrar storage de ficheiros do sistema de ficheiros local para storage externo (MinIO / S3 / Azure Blob) — decisão: fica local por agora
+- [x] Containerizar todos os serviços — `docker-compose.yml` na raiz + `Dockerfile` próprio por serviço (build independente: só `core` + o próprio serviço)
 
 ### Segurança
-- [ ] Configurar Spring Security com autenticação JWT em todos os serviços
-- [ ] Definir roles e autorização por endpoint (ex: ADMIN para criar templates, USER para ingestão)
+- [x] Configurar Spring Security com autenticação JWT em todos os serviços — `user-service` (:8086) emite tokens RS256, publica JWKS em `/.well-known/jwks.json`
+- [x] Definir roles e autorização por endpoint — `ServiceRole` (`core`): `{TEMPLATE,INGESTION,PIPELINE,BATCH}_{READ,EDIT,EXECUTE}` + `USER_{READ,EDIT}`, gating por endpoint em todos os 5 serviços backend
 - [ ] Adicionar HTTPS / TLS na comunicação entre serviços
 
 ### Processamento
-- [ ] Tornar a ingestão de ficheiros assíncrona (`@Async` ou mensageria) — responder com `202 Accepted` imediatamente
+- [x] Tornar a ingestão de ficheiros assíncrona — processamento via Kafka (`IngestionJobEvent`, consumer + dead-letter-topic) no `ingestion-service`
 - [ ] Substituir `String.split()` no CSV parser por Apache Commons CSV ou OpenCSV (suporte a campos entre aspas, delimitadores escapados, newlines em campos)
 
 ---
@@ -23,20 +24,20 @@
 ## Fase 2 — Resiliência e Observabilidade
 
 ### Resiliência Inter-Serviços
-- [ ] Adicionar Resilience4j aos clientes REST (circuit breaker, retry com backoff exponencial, timeout)
-- [ ] Definir fallback para quando template-service está indisponível (ex: cache local de templates)
-- [ ] Adicionar retry com backoff no `ForecastItemWriter` para falhas na API de previsão externa
+- [x] Adicionar Resilience4j aos clientes REST (circuit breaker, retry com backoff exponencial) — `ingestion-service`/`pipeline-service` → `template-service`, `batch-service` → `pipeline-service`/`ingestion-service`
+- [x] Definir fallback para quando um serviço dependente está indisponível — `ServiceUnavailableException` (`core`) → 503, lançada pelos métodos de fallback do Resilience4j
+- [ ] Adicionar retry com backoff no `ForecastItemWriter` para falhas na API de previsão externa (fica fora do âmbito do Resilience4j já aplicado — é uma URL arbitrária definida pelo utilizador, não um serviço interno)
 
 ### Scheduler e Batch
-- [ ] Persistir `lastRunTimes` do `BatchScheduler` na base de dados (actualmente em memória — perdido no restart)
+- [x] Persistir `lastRunTimes` do `BatchScheduler` na base de dados — coluna `lastRunAt` em `BatchScheduleConfig`
 - [ ] Tornar o `chunkSize` (actualmente hardcoded a 100) configurável via `application.properties`
 - [ ] Tornar o tamanho de página do `ForecastItemReader` (actualmente 200) configurável
 - [ ] Implementar mecanismo de replay de schedules que falharam durante downtime
 
 ### Observabilidade
-- [ ] Adicionar Spring Boot Actuator (health, info, metrics) em todos os serviços
+- [x] Adicionar Spring Boot Actuator (health, info, metrics) em todos os serviços — 5 serviços backend, `/actuator/**` público
 - [ ] Integrar OpenTelemetry ou Spring Sleuth para tracing distribuído entre serviços
-- [ ] Adicionar correlation ID nas chamadas inter-serviços para rastreabilidade end-to-end
+- [x] Adicionar correlation ID nas chamadas inter-serviços para rastreabilidade end-to-end — `CorrelationIdFilter`/`CorrelationIdAutoConfiguration` (`core`)
 - [ ] Expor métricas Prometheus e configurar dashboards Grafana
 - [ ] Adicionar logging estruturado (JSON) com campos consistentes (serviceId, traceId, jobId)
 
@@ -69,8 +70,8 @@
 ## Fase 4 — Evolução Arquitectural (Futuro)
 
 ### Mensageria e Eventos
-- [ ] Introduzir broker de mensagens (Kafka ou RabbitMQ) para desacoplar ingestão e processamento
-- [ ] Publicar evento `IngestionCompleted` quando um job termina — permitir ao batch-service reagir em vez de polling periódico
+- [x] Introduzir broker de mensagens (Kafka) para desacoplar ingestão e processamento — `ingestion-service` publica/consome `IngestionJobEvent` (com dead-letter-topic); usado internamente para desacoplar o upload do parsing, não (ainda) consumido pelo batch-service
+- [ ] Publicar evento `IngestionCompleted` para o batch-service reagir em vez de polling periódico — o batch-service continua a consultar `GET /api/ingestion/jobs` por REST
 - [ ] Avaliar event sourcing para auditoria completa de transformações aplicadas
 
 ### Suporte a Formatos
@@ -79,10 +80,10 @@
 - [ ] Implementar `TxtIngestionProcessor`
 
 ### Developer Experience
-- [ ] Adicionar `docker-compose.yml` para arrancar todos os serviços localmente com um comando
-- [ ] Configurar perfis Spring (`dev`, `prod`) com configurações diferenciadas
+- [x] Adicionar `docker-compose.yml` para arrancar todos os serviços localmente com um comando
+- [x] Configurar perfis Spring (`dev`, `docker`) com configurações diferenciadas — `prod` (Postgres) ainda não existe
 - [ ] Adicionar testes de integração inter-serviços (ex: Testcontainers + WireMock)
-- [ ] Publicar contratos de API em OpenAPI/Swagger com `springdoc-openapi`
+- [x] Publicar contratos de API em OpenAPI/Swagger com `springdoc-openapi` — anotações em inglês em todos os endpoints expostos
 
 ---
 

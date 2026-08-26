@@ -3,26 +3,46 @@ actor Client
 participant "IngestionController" as IC
 participant "IngestionService" as IS
 participant "TemplateClient" as TC
+participant "gateway-service" as GW
+participant "IngestionEventProducer" as PROD
+queue "Kafka\ntopic: ingestion.jobs" as KAFKA
+participant "IngestionEventConsumer" as CONS
 participant "IngestionProcessorFactory" as IPF
 participant "CsvIngestionProcessor" as CSV
 database "ingestiondb" as DB
 database "FileSystem" as FS
 
-Client -> IC : POST /api/ingestion/jobs\n(file, templateId, autoProcess=true)
-IC -> IS : createJob(file, templateId, createdBy, autoProcess)
-IS -> TC : GET v1/api/templates/{templateId}
-TC --> IS : TemplateDto
+Client -> IC : POST /api/ingestion/jobs\n(file, templateId, autoProcess=true)\nAuthorization: Bearer <JWT>
+IC -> IS : createJob(file, templateId, autoProcess)
+IS -> IS : companyId = JWT claim "companyId"\ncreatedBy = JWT subject
+IS -> TC : getTemplate(templateId)
+TC -> GW : GET v1/api/templates/{templateId}\n(Authorization header relayed, services.auth.relay=true)
+GW --> TC : TemplateClientDto
+TC --> IS : TemplateClientDto
+IS -> IS : Detect FileType da extensão\ne comparar com template.fileType
 IS -> FS : Guardar ficheiro em\nuploads/template_{id}/{UUID}_{nome}
 IS -> IS : Calcular SHA-256
-IS -> DB : Salvar IngestionJob (status=RECEIVED)
-IS -> IPF : getProcessor(FileType.CSV)
+IS -> DB : Salvar IngestionJob\n(companyId, status=RECEIVED)
+IS --> IC : CreateIngestionJobResponse
+IC --> Client : 201 Created
+
+alt autoProcess = true
+  IS -> PROD : publish(jobId)
+  PROD -> KAFKA : send(topic="ingestion.jobs",\nkey=jobId, IngestionJobEvent(jobId, correlationId))
+end
+
+== Processamento assíncrono ==
+KAFKA -> CONS : @KafkaListener consume(event)\n(groupId=ingestion-processor)
+CONS -> IS : processJob(jobId)
+IS -> IPF : getProcessor(fileType)
 IPF --> IS : CsvIngestionProcessor
 IS -> CSV : process(job, template)
+CSV -> DB : job.status = PROCESSING
 loop Para cada linha do ficheiro
   CSV -> CSV : mapear colunas por sourceName / positionIndex
-  loop Para cada TemplateField
+  loop Para cada TemplateField activo
     CSV -> CSV : convertAndValidateField()
-    note right: Conversão de tipo\n+ regras de validação\n(NOT_NULL, REGEX, MIN, MAX, ENUM, DATE_FORMAT)
+    note right: required -> validationRegex -> convertValue (tipo)\n-> applyRules (NOT_NULL, REGEX, MIN, MAX, ENUM, DATE_FORMAT)
   end
   alt Linha válida
     CSV -> DB : Salvar IngestedRecord (status=VALID, normalizedPayload)
@@ -32,6 +52,15 @@ loop Para cada linha do ficheiro
   end
 end
 CSV -> DB : Actualizar IngestionJob\n(status=COMPLETED, recordCount, errorCount)
-IS --> IC : CreateIngestionJobResponse
-IC --> Client : 201 Created
+
+alt Falha não tratada em doProcess()
+  CSV -> DB : Actualizar IngestionJob (status=FAILED, errorMessage)
+end
+
+alt Consumer lança excepção
+  note right of CONS: @RetryableTopic(attempts=3) reencaminha para\n"ingestion.jobs.dlt" após esgotar as tentativas
+  CONS -> CONS : @DltHandler onDeadLetter(event)
+  CONS -> IS : markJobFailed(jobId, errorMessage)
+  IS -> DB : Actualizar IngestionJob (status=FAILED)
+end
 @enduml
